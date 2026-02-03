@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+# Environment
+.env
+*.env
+!example.env
+# Database
+*.sql.gz
+pgdata/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+# OS
+.DS_Store
+Thumbs.db
+# Logs
+*.log
+logs/
+# Backups
+backups/
+# Secrets
+group_vars/prod.yml
+group_vars/test.yml
