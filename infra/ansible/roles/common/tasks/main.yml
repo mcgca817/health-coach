@@ -1,0 +1,57 @@
+# Common setup tasks for all servers
+- name: Update apt package cache
+  become: yes
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install essential packages
+  become: yes
+  apt:
+    name:
+      - git
+      - curl
+      - wget
+      - vim
+      - htop
+      - python3
+      - python3-pip
+      - python3-venv
+      - build-essential
+      - unattended-upgrades
+      - rsync
+      - libpq-dev  # <--- ADD THIS LINE (PostgreSQL development headers)
+    state: present
+
+- name: Enable automatic security updates
+  become: yes
+  command: dpkg-reconfigure -f noninteractive unattended-upgrades
+  args:
+    creates: /etc/apt/apt.conf.d/20auto-upgrades
+
+- name: Create application directory
+  become: yes
+  file:
+    path: /opt/healthcoach
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Create logs directory
+  become: yes
+  file:
+    path: /opt/healthcoach/logs
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+
+- name: Create backups directory
+  become: yes
+  file:
+    path: /opt/healthcoach/backups
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'

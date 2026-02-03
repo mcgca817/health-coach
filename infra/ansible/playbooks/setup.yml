@@ -1,0 +1,8 @@
+# Initial server setup
+- name: Set up Health Coach servers
+  hosts: all
+  gather_facts: yes
+  roles:
+    - common
+    - docker
+    - healthcoach

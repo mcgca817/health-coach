@@ -1,0 +1,61 @@
+# Install Docker and Docker Compose
+- name: Install Docker dependencies
+  become: yes
+  apt:
+    name:
+      - ca-certificates
+      - gnupg
+      - lsb-release
+    state: present
+
+- name: Create keyrings directory
+  become: yes
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Add Docker GPG key
+  become: yes
+  shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  args:
+    creates: /etc/apt/keyrings/docker.gpg
+
+- name: Add Docker repository
+  become: yes
+  copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    # FIXED: 
+    # 1. Dynamic architecture (works for Mac M1/M2/M3 and Intel)
+    # 2. Hardcoded 'noble' (Ubuntu 24.04) because 'questing' is invalid
+    content: "deb [arch={{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu noble stable"
+    mode: '0644'
+
+- name: Update apt cache after adding Docker repo
+  become: yes
+  apt:
+    update_cache: yes
+
+- name: Install Docker Engine and Compose
+  become: yes
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+
+- name: Add user to docker group
+  become: yes
+  user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: yes
+
+- name: Start and enable Docker service
+  become: yes
+  systemd:
+    name: docker
+    state: started
+    enabled: yes

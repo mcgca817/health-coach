@@ -1,0 +1,69 @@
+# Deploy the Health Coach application
+- name: Copy application code
+  synchronize:
+    src: "{{ playbook_dir }}/../../../app/"
+    dest: /opt/healthcoach/app/
+    delete: yes
+    rsync_opts:
+      - "--exclude=__pycache__"
+      - "--exclude=*.pyc"
+      - "--exclude=.pytest_cache"
+
+- name: Copy config files
+  synchronize:
+    src: "{{ playbook_dir }}/../../../config/"
+    dest: /opt/healthcoach/config/
+    delete: no
+
+- name: Copy SQL files
+  synchronize:
+    src: "{{ playbook_dir }}/../../../sql/"
+    dest: /opt/healthcoach/sql/
+    delete: no
+
+- name: Create env file from template
+  become: yes
+  template:
+    src: "{{ playbook_dir }}/../templates/env.j2"
+    dest: /opt/healthcoach/.env
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+
+- name: Copy docker-compose.yml
+  template:
+    src: "{{ playbook_dir }}/../templates/docker-compose.yml.j2"
+    dest: /opt/healthcoach/docker-compose.yml
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+
+- name: Install Python dependencies
+  pip:
+    requirements: /opt/healthcoach/app/requirements.txt
+    virtualenv: /opt/healthcoach/venv
+    virtualenv_command: python3 -m venv
+
+- name: Start Docker containers
+  shell: |
+    cd /opt/healthcoach
+    docker compose up -d
+  become: yes
+
+- name: Wait for PostgreSQL to be ready
+  wait_for:
+    host: localhost
+    port: 5432
+    delay: 5
+    timeout: 30
+
+- name: Check if database is initialized
+  shell: |
+    docker exec healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }} -c "SELECT 1 FROM schema_version LIMIT 1;" || echo "not_initialized"
+  register: db_check
+  changed_when: false
+
+- name: Initialize database schema
+  shell: |
+    cat /opt/healthcoach/sql/schema.sql | docker exec -i healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }}
+  when: "'not_initialized' in db_check.stdout"

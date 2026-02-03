@@ -31,5 +31,8 @@ logs/
 # Backups
 backups/
 # Secrets
-group_vars/prod.yml
-group_vars/test.yml
+**/*.env
+**/group_vars/*.yml
+**/host_vars/*.yml
+*.key
+*.pem

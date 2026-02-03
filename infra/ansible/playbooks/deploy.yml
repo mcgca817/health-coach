@@ -1,0 +1,6 @@
+# Deploy updates to existing servers
+- name: Deploy Health Coach application
+  hosts: all
+  gather_facts: yes
+  roles:
+    - healthcoach
