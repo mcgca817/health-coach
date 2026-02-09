@@ -61,19 +61,42 @@ def fetch_recent_data(days=30):
                 if row['time_asleep_in_seconds']:
                     merged_bio[d_str]['sleep_hours'] = round(row['time_asleep_in_seconds'] / 3600.0, 2)
 
-            # 3. Nutrition
+# 3. Nutrition
+            # We must calculate the actual values based on the portion eaten vs serving size.
+            # If serving_size is 0 or NULL, we default to the raw value to avoid division by zero.
             cur.execute("""
                 SELECT 
                     entry_date, 
-                    SUM(calories) as calories, 
-                    SUM(protein) as protein, 
-                    SUM(carbs) as carbs, 
-                    SUM(fat) as fat
+                    SUM(
+                        CASE 
+                            WHEN serving_size > 0 THEN (quantity / serving_size) * calories
+                            ELSE calories 
+                        END
+                    ) as calories, 
+                    SUM(
+                        CASE 
+                            WHEN serving_size > 0 THEN (quantity / serving_size) * protein
+                            ELSE protein 
+                        END
+                    ) as protein, 
+                    SUM(
+                        CASE 
+                            WHEN serving_size > 0 THEN (quantity / serving_size) * carbs
+                            ELSE carbs 
+                        END
+                    ) as carbs, 
+                    SUM(
+                        CASE 
+                            WHEN serving_size > 0 THEN (quantity / serving_size) * fat
+                            ELSE fat 
+                        END
+                    ) as fat
                 FROM food_entries
                 WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
                 GROUP BY entry_date
                 ORDER BY entry_date ASC
             """, (f"{days} days",))
+            
             data['nutrition'] = cur.fetchall()
             
     finally:
