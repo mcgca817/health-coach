@@ -1,0 +1,16 @@
+[Unit]
+Description=Health Coach Telegram Bot
+After=docker.service network.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ ansible_user }}
+WorkingDirectory=/opt/healthcoach
+EnvironmentFile=/opt/healthcoach/.env
+ExecStart=/opt/healthcoach/venv/bin/python3 app/bot/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

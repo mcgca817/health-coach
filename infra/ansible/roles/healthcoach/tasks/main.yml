@@ -1,3 +1,7 @@
+- name: Set timezone to Pacific/Auckland
+  become: yes
+  timezone:
+    name: Pacific/Auckland
 # Deploy the Health Coach application
 - name: Copy application code
   synchronize:
@@ -67,3 +71,30 @@
   shell: |
     cat /opt/healthcoach/sql/schema.sql | docker exec -i healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }}
   when: "'not_initialized' in db_check.stdout"
+
+- name: Copy systemd service files
+  become: yes
+  template:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item | basename | replace('.j2', '') }}"
+    mode: '0644'
+  loop:
+    - healthcoach-bot.service.j2
+    - healthcoach-decision.service.j2
+    - healthcoach-decision.timer.j2
+  notify: Reload systemd
+
+- name: Enable and start Telegram Bot
+  become: yes
+  systemd:
+    name: healthcoach-bot
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Enable and start Decision Timer
+  become: yes
+  systemd:
+    name: healthcoach-decision.timer
+    state: started
+    enabled: yes
