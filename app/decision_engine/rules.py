@@ -1,6 +1,16 @@
 """
 Hard rules and circuit breakers.
+Ensures safety checks are run against validated numeric data.
 """
+
+def safe_float(value, default=None):
+    """Safely convert database values to float, handling None and strings."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 def check_circuit_breakers(context):
     """
@@ -15,29 +25,39 @@ def check_circuit_breakers(context):
     
     # Defaults if no data
     if not biometrics:
-        return [], "No biometric data available."
+        return ["no_data"], "No biometric data available to assess readiness."
 
-    today = biometrics[0] # Most recent
+    today = biometrics[0] # Most recent entry
     
-    # 1. Check HRV (Circuit Breaker)
-    # If HRV < (baseline - 1.5 * sigma), force rest
-    # Note: For simplicity, we assume 'hrv' in DB is raw ms.
-    # In a real system, you'd calculate rolling baseline.
-    # Here we simulate a simple check: is HRV < 30ms (panic threshold)?
-    if today.get('hrv') and today['hrv'] < 30:
+    # --- 1. Check HRV (Circuit Breaker) ---
+    # Threshold: If HRV is critically low (< 30ms), we force a rest day.
+    hrv = safe_float(today.get('hrv'))
+    
+    if hrv is not None and hrv < 30:
         triggers.append("low_hrv")
-        reasoning.append(f"HRV ({today['hrv']}) is critically low. Force Rest.")
+        reasoning.append(f"HRV is critically low ({int(hrv)}ms). Force Rest/Recovery.")
 
-    # 2. Check Sleep Debt
-    # If avg sleep last 3 days < 5 hours
-    recent_sleep = [b['sleep_hours'] for b in biometrics[:3] if b.get('sleep_hours')]
-    if recent_sleep and (sum(recent_sleep) / len(recent_sleep)) < 5.0:
-        triggers.append("high_sleep_debt")
-        reasoning.append("Average sleep < 5h. Intensity cap applied.")
+    # --- 2. Check Sleep Debt ---
+    # Threshold: If avg sleep over last 3 days < 5.5 hours, cap intensity.
+    recent_sleep_values = []
+    for day_data in biometrics[:3]:
+        val = safe_float(day_data.get('sleep_hours'))
+        if val is not None:
+            recent_sleep_values.append(val)
+            
+    if recent_sleep_values:
+        avg_sleep = sum(recent_sleep_values) / len(recent_sleep_values)
+        if avg_sleep < 5.5:
+            triggers.append("high_sleep_debt")
+            reasoning.append(f"Sleep debt high (Avg {avg_sleep:.1f}h). Intensity capped.")
 
-    # 3. Protein Compliance
-    # This isn't a hard stop, but a flag for the LLM
-    protein_floor = rules.get('protein_floor_g_per_kg', 1.6)
-    # logic to check protein would go here...
+    # --- 3. Check Training Stress Balance (TSB) ---
+    # If TSB is very negative (<-30), risk of injury is high.
+    load = context.get('load', {})
+    tsb = safe_float(load.get('tsb'))
+    
+    if tsb is not None and tsb < -30:
+        triggers.append("high_fatigue")
+        reasoning.append(f"Training Stress Balance is very low ({int(tsb)}). Risk of overtraining.")
 
     return triggers, "; ".join(reasoning)
