@@ -75,29 +75,63 @@ async def get_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error fetching plan: {str(e)}")
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Check the health of the system."""
+    """Check the health of the system and latest biometrics."""
     try:
         with get_cursor() as cur:
             # Check DB connection
             cur.execute("SELECT 1")
             
-            # Check latest biometrics date
-            cur.execute("SELECT date FROM daily_biometrics ORDER BY date DESC LIMIT 1")
+            # Fetch latest Biometrics (Weight + Training Load)
+            cur.execute("""
+                SELECT date, weight_kg, ctl, atl, tsb 
+                FROM daily_biometrics 
+                ORDER BY date DESC 
+                LIMIT 1
+            """)
             bio = cur.fetchone()
-            last_bio = bio['date'] if bio else "None"
             
             # Check active phase
             cur.execute("SELECT phase FROM system_phase WHERE active = true")
-            phase = cur.fetchone()
-            current_phase = phase['phase'] if phase else "None"
+            phase_row = cur.fetchone()
+            current_phase = phase_row['phase'] if phase_row else "Unknown"
 
-            msg = (
-                "✅ **System Status: Online**\n\n"
-                f"• **Active Phase:** `{current_phase}`\n"
-                f"• **Last Biometrics:** `{last_bio}`\n"
-                f"• **Database:** Connected"
-            )
+            if bio:
+                date = bio['date']
+                weight = bio['weight_kg'] or "N/A"
+                ctl = bio['ctl'] or "N/A"
+                atl = bio['atl'] or "N/A"
+                tsb = bio['tsb'] or "N/A"
+                
+                msg = (
+                    f"✅ **System Status: Online**\n\n"
+                    f"📅 **Date:** `{date}`\n"
+                    f"🌊 **Phase:** `{current_phase}`\n\n"
+                    f"⚖️ **Weight:** `{weight} kg`\n"
+                    f"🚴 **Fitness (CTL):** `{ctl}`\n"
+                    f"🔋 **Fatigue (ATL):** `{atl}`\n"
+                    f"📉 **Form (TSB):** `{tsb}`"
+                )
+            else:
+                msg = "✅ **System Online**, but no biometrics found."
+
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
     except Exception as e:
         await update.message.reply_text(f"❌ System Error: {str(e)}")
+
+from app.decision_engine.llm import get_coaching_advice
+
+async def coach_command(update, context):
+    """Handler for the /coach command"""
+    # Send an initial 'thinking' message
+    status_msg = await update.message.reply_text("📋 McPatty Coach is reviewing your biometrics...")
+    
+    try:
+        # Get the tactical briefing
+        advice = get_coaching_advice()
+        
+        # Update the message with the actual advice
+        await status_msg.edit_text(advice, parse_mode='Markdown')
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Coach hit a technical snag: {str(e)}")

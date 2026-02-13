@@ -1,18 +1,17 @@
 import os
 import requests
-import base64
 from datetime import datetime, timedelta
 
-def get_auth_header():
-    api_key = os.getenv('INTERVALS_API_KEY')
-    # Intervals.icu uses Basic Auth with username='API_KEY' and password='development'
-    token = base64.b64encode(f"API_KEY:{api_key}".encode('utf-8')).decode('utf-8')
-    return {'Authorization': f'Basic {token}'}
-
 def fetch_wellness_data(days=30):
+    """
+    Fetches wellness and training load data from Intervals.icu.
+    Relies on HealthFit (iPhone) to push Apple Health data to Intervals first.
+    """
     athlete_id = os.getenv('INTERVALS_ATHLETE_ID')
-    if not athlete_id or not os.getenv('INTERVALS_API_KEY'):
-        print("⚠️ Intervals.icu credentials missing. Skipping.")
+    api_key = os.getenv('INTERVALS_API_KEY')
+    
+    if not athlete_id or not api_key:
+        print("⚠️  Intervals.icu credentials missing. Skipping.")
         return []
 
     # Calculate date range
@@ -24,25 +23,44 @@ def fetch_wellness_data(days=30):
     print(f"   - Fetching Intervals.icu data from {start_date} to {end_date}...")
     
     try:
-        # Note: Username is 'API_KEY', password is usually ignored or 'development'
-        response = requests.get(url, auth=('API_KEY', os.getenv('INTERVALS_API_KEY')))
+        # Intervals.icu uses Basic Auth with 'API_KEY' as the username
+        response = requests.get(url, auth=('API_KEY', api_key))
         
         if response.status_code == 200:
             data = response.json()
             cleaned_data = []
             
             for day in data:
-                # We only care about the metrics relevant to the Health Coach
+                # 1. Capture Performance Metrics (CTL/ATL)
+                ctl = day.get('ctl') or 0
+                atl = day.get('atl') or 0
+                
+                # 2. TSB (Form) Calculation Fallback
+                tsb = day.get('form')
+                if tsb is None:
+                    tsb = float(ctl) - float(atl)
+
+                # 3. Total Daily Burn (TDEE) 
+                # Prioritize 'kcal' (the HealthFit wellness field) over 'calories'
+                kcal_burned = day.get('kcal') or day.get('calories')
+
+                # 4. Sleep Calculation (Seconds to Hours)
+                sleep_secs = day.get('sleepSecs')
+                sleep_hrs = round(sleep_secs / 3600, 2) if sleep_secs else None
+
                 cleaned_data.append({
                     'date': day.get('id'),
-                    'ctl': day.get('ctl'),
-                    'atl': day.get('atl'),
-                    'tsb': day.get('form'),
+                    'ctl': round(float(ctl), 2),
+                    'atl': round(float(atl), 2),
+                    'tsb': round(float(tsb), 2),
                     'resting_hr': day.get('restingHR'),
                     'hrv': day.get('hrvSDNN') or day.get('hrv'),
-                    'kcal_burned': day.get('calories') # Total energy expenditure from Intervals
+                    'kcal_burned': int(kcal_burned) if kcal_burned else None,
+                    'weight_kg': day.get('weight'),
+                    'sleep_hours': sleep_hrs,
+                    'steps': day.get('steps')
                 })            
-            print(f"   - Retrieved {len(cleaned_data)} days of training load data.")
+            print(f"   - Retrieved {len(cleaned_data)} days of training and wellness data.")
             return cleaned_data
         else:
             print(f"❌ Error fetching Intervals data: {response.status_code} - {response.text}")
@@ -53,9 +71,9 @@ def fetch_wellness_data(days=30):
         return []
 
 if __name__ == "__main__":
-    # Test run
+    # For standalone testing
     from dotenv import load_dotenv
-    load_dotenv() # Load local .env if running manually
-    data = fetch_wellness_data(7)
-    for d in data:
+    load_dotenv('/opt/healthcoach/.env')
+    test_data = fetch_wellness_data(7)
+    for d in test_data:
         print(d)

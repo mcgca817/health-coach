@@ -1,0 +1,13 @@
+[Unit]
+Description=Health Coach Data Sync (Intervals and Sparky)
+After=network.target
+
+[Service]
+Type=oneshot
+User={{ ansible_user }}
+WorkingDirectory=/opt/healthcoach
+EnvironmentFile=/opt/healthcoach/.env
+ExecStart=/opt/healthcoach/venv/bin/python3 /opt/healthcoach/app/sync/main.py
+
+[Install]
+WantedBy=multi-user.target

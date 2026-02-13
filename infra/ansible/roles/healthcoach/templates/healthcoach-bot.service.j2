@@ -1,16 +1,16 @@
 [Unit]
 Description=Health Coach Telegram Bot
-After=docker.service network.target
-Requires=docker.service
+After=network.target
 
 [Service]
-Type=simple
-User={{ ansible_user }}
+User=cameron
 WorkingDirectory=/opt/healthcoach
+# This line tells Python that /opt/healthcoach is the root of your code
+Environment="PYTHONPATH=/opt/healthcoach"
 EnvironmentFile=/opt/healthcoach/.env
-ExecStart=/opt/healthcoach/venv/bin/python3 app/bot/main.py
+ExecStart=/opt/healthcoach/venv/bin/python3 /opt/healthcoach/app/bot/main.py
 Restart=always
-RestartSec=10
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

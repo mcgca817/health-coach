@@ -1,96 +1,67 @@
-"""
-Context builder for the Decision Engine.
-Collects data from DB to form the 'state' for the LLM.
-"""
-import sys
 import os
+from app.db import get_cursor
 from datetime import datetime, timedelta
 
-# Add parent directory to path to import db
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from db import get_cursor
-
-def get_recent_biometrics(days=14):
-    """Fetch biometrics (Weight, HRV, Sleep) + Training Load (CTL, ATL) for context."""
+def get_athlete_context(days=7):
+    """
+    Fetches raw data from the local DB and formats it as a 
+    structured summary for the LLM.
+    """
     with get_cursor() as cur:
-        # We fetch 14 days so the LLM can see the trend
+        # Fetch combined metrics for the requested window
         cur.execute("""
             SELECT 
-                date, 
-                weight_kg, 
-                hrv, 
-                resting_hr, 
-                sleep_hours, 
-                steps,
-                ctl,
-                atl,
-                tsb
-            FROM daily_biometrics
-            WHERE date >= CURRENT_DATE - %s::INTERVAL
-            ORDER BY date DESC
-        """, (f"{days} days",))
+                b.date, 
+                b.weight_kg, 
+                b.kcal_burned, 
+                b.ctl, 
+                b.tsb, 
+                b.hrv,
+                n.kcal_actual, 
+                n.protein_actual_g
+            FROM daily_biometrics b
+            LEFT JOIN nutrition_actuals n ON b.date = n.date
+            WHERE b.date >= CURRENT_DATE - %s * INTERVAL '1 day'
+            ORDER BY b.date DESC
+        """, (days,))
         
-        # Convert rows to a list of dictionaries
-        columns = [desc[0] for desc in cur.description]
-        results = [dict(zip(columns, row)) for row in cur.fetchall()]
-        return results
+        rows = cur.fetchall()
 
-def get_recent_nutrition(days=7):
-    """Fetch nutrition actuals for the last N days."""
-    with get_cursor() as cur:
-        cur.execute("""
-            SELECT date, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g
-            FROM nutrition_actuals
-            WHERE date >= CURRENT_DATE - %s::INTERVAL
-            ORDER BY date DESC
-        """, (f"{days} days",))
-        
-        columns = [desc[0] for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+    if not rows:
+        return "No recent data found in the database."
 
-def get_system_phase():
-    """Get the current active phase (e.g., 'recomp', 'race_prep')."""
-    with get_cursor() as cur:
-        cur.execute("""
-            SELECT phase, start_date, end_date
-            FROM system_phase
-            WHERE active = true
-            ORDER BY start_date DESC
-            LIMIT 1
-        """)
-        row = cur.fetchone()
-        if row:
-            return dict(zip([desc[0] for desc in cur.description], row))
-        return {"phase": "maintenance", "start_date": str(datetime.now().date())}
-
-def get_rules():
-    """Fetch all safety rules and thresholds."""
-    with get_cursor() as cur:
-        cur.execute("SELECT rule_name, rule_value, rule_unit FROM rule_config")
-        rules = {}
-        for row in cur.fetchall():
-            rules[row['rule_name']] = row['rule_value']
-        return rules
-
-def build_context():
-    """Aggregate all data into a single dictionary."""
-    biometrics = get_recent_biometrics()
+    # Process metrics
+    latest = rows[0]
     
-    # Extract the most recent load data specifically for easy access
-    current_load = {}
-    if biometrics:
-        latest = biometrics[0]
-        current_load = {
-            "ctl": latest.get('ctl'),
-            "atl": latest.get('atl'),
-            "tsb": latest.get('tsb')
-        }
+    # Calculate averages for the window
+    avg_protein = sum(r['protein_actual_g'] or 0 for r in rows) / days
+    avg_deficit = sum((r['kcal_actual'] or 0) - (r['kcal_burned'] or 0) for r in rows if r['kcal_burned']) / days
 
-    return {
-        "date": datetime.now().strftime("%Y-%m-%d"),
-        "biometrics": biometrics,
-        "load": current_load, # Explicitly passing current load summary
-        "nutrition": get_recent_nutrition(),
-        "phase": get_system_phase(),
-        "rules": get_rules()
-    }
+    # Construct the context string
+    context = [
+        "### ATHLETE STATUS REPORT",
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        "",
+        "**Current Biometrics (Latest):**",
+        f"- Weight: {latest['weight_kg']} kg",
+        f"- Fitness (CTL): {latest['ctl']}",
+        f"- Form (TSB): {latest['tsb']} (Ready to train)" if latest['tsb'] > -10 else f"- Form (TSB): {latest['tsb']} (Recovery needed)",
+        f"- HRV: {latest['hrv']} ms",
+        "",
+        "**Nutrition & Deficit (7-Day Averages):**",
+        f"- Avg Protein: {avg_protein:.1f}g (Target: 140g)",
+        f"- Avg Daily Deficit: {avg_deficit:.0f} kcal",
+        f"- Protein Floor Met: {'✅' if avg_protein >= 140 else '❌'}",
+        "",
+        "**Recent Daily Log:**",
+        "| Date | Burn (TDEE) | Intake | Net | Protein |",
+        "| :--- | :--- | :--- | :--- | :--- |"
+    ]
+
+    for r in rows[:5]: # Show last 5 days in a table
+        burn = r['kcal_burned'] or 0
+        intake = r['kcal_actual'] or 0
+        net = intake - burn
+        context.append(f"| {r['date']} | {burn} | {intake} | {net:+} | {r['protein_actual_g']}g |")
+
+    return "\n".join(context)

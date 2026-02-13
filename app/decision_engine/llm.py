@@ -1,85 +1,82 @@
-"""
-Interface with Anthropic Claude API.
-"""
 import os
-import json
-import anthropic
+import sys
+from anthropic import Anthropic
 from dotenv import load_dotenv
 
-# Force load the .env file to ensure keys are present
+# Ensure the app root is in the path for internal imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from app.decision_engine.context import get_athlete_context
+
+# Load environment variables - prioritizing the standard production path
 load_dotenv('/opt/healthcoach/.env')
 
-CLIENT = anthropic.Anthropic(api_key=os.getenv('CLAUDE_API_KEY'))
-
-SYSTEM_PROMPT = """
-You are an expert elite sports physiologist and nutritionist (PhD level).
-Your client is a serious amateur athlete training for performance and longevity.
-
-KEY METRICS DEFINITION:
-- CTL (Chronic Training Load): "Fitness" - Long-term rolling average of training load (42 days).
-- ATL (Acute Training Load): "Fatigue" - Short-term rolling average (7 days).
-- TSB (Training Stress Balance): "Form" - (CTL - ATL). 
-  - Positive (>0): Fresh / Tapered.
-  - Negative (-10 to -30): Productive Training.
-  - Very Negative (<-30): High Risk of Overtraining/Injury.
-- HRV: Heart Rate Variability. Higher is generally better (recovery).
-- Resting HR: Lower is generally better.
-
-YOUR GOAL:
-Optimize the daily plan for TOMORROW based on the client's current physiological state.
-- If TSB is very low (<-30) or HRV is tanking -> Prescribe Recovery/Rest.
-- If TSB is positive but Phase is "Building" -> Prescribe Hard Training.
-- Adjust Calories based on the prescribed activity (Fuel the work).
-
-OUTPUT FORMAT:
-You must output ONLY valid JSON. No preamble, no markdown blocks.
-"""
-
-def generate_plan(context, constraints):
+def get_coaching_advice():
     """
-    Send context to Claude and get a daily plan.
+    Retrieves current athlete context and passes it to Claude-3.5-Sonnet
+    to generate tactical coaching advice.
     """
+    # Check for both possible names in the .env
+    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
     
+    if not api_key:
+        return "❌ ERROR: No API Key found. Check .env for CLAUDE_API_KEY or ANTHROPIC_API_KEY."
+
+    client = Anthropic(api_key=api_key)
+    
+    # 1. Fetch the data report generated from your local Postgres DB
+    report = get_athlete_context(days=7)
+    
+    # 2. Define the Coaching Persona and Cameron's specific constraints
+    system_prompt = """
+    You are 'McPatty Coach', an elite, data-driven performance coach. 
+    You are coaching Cameron, a CISO training for the Whaka 50 MTB race.
+    
+    CAMERON'S CORE GOALS:
+    - Reach 75kg by May 2026 (40th Birthday).
+    - Achieve a 250W FTP for the Whaka 50.
+    - Strict 140g daily protein floor to maintain structural integrity.
+    
+    DIETARY CONSTRAINTS:
+    - NO almonds, chickpeas, or apricots (allergies/aversions).
+    - Diet style: High protein, controlled caloric deficit.
+    
+    YOUR COACHING STYLE:
+    - Tactical and brief (He is a busy CISO).
+    - Slightly witty/dry.
+    - Never generic. If he's missing his protein floor, call it out. 
+    - If his TSB (Form) is negative, suggest recovery. 
+    - If he has a surplus without a big training load, warn him about the 75kg goal.
+    """
+
     user_prompt = f"""
-    CURRENT DATE: {context['date']}
-    ACTIVE PHASE: {context['phase']['phase']} (Started: {context['phase'].get('start_date')})
+    Cameron's Weekly Status Report:
     
-    --- RECENT BIOMETRICS (Last 14 Days) ---
-    (Includes Weight, HRV, Resting HR, and Training Load)
-    {json.dumps(context['biometrics'], default=str, indent=2)}
+    {report}
     
-    --- RECENT NUTRITION (Last 7 Days) ---
-    {json.dumps(context['nutrition'], default=str, indent=2)}
-    
-    --- ACTIVE CONSTRAINTS (MUST OBEY) ---
-    {constraints}
-    
-    --- TASK ---
-    Generate a detailed plan for TOMORROW.
-    1. Nutrition: Specific Macros.
-    2. Training: Specific Workout.
-    3. Reasoning: strictly based on the data (reference CTL/TSB/HRV trends).
-    
-    --- REQUIRED JSON OUTPUT ---
-    {{
-      "nutrition": {{ "kcal": 0, "protein": 0, "carbs": 0, "fat": 0, "refeed": false }},
-      "training": {{ "workout_type": "string", "duration_minutes": 0, "intensity_zone": "string", "description": "string" }},
-      "reasoning": "string"
-    }}
+    Based on this specific data, give me a tactical priority for today and a 
+    suggestion for the next meal.
     """
-    
+
     try:
-        message = CLIENT.messages.create(
-            model="claude-3-5-sonnet-20240620", # Using Sonnet 3.5 for best reasoning
-            max_tokens=1000,
-            temperature=0.2, # Low temperature for consistent adherence to data
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}]
+        # 3. Call Claude 3.5 Sonnet
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=600,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt}
+            ]
         )
         
-        response_text = message.content[0].text
-        return json.loads(response_text)
-        
+        return response.content[0].text
+
     except Exception as e:
-        print(f"❌ LLM Error: {e}")
-        return None
+        return f"❌ Coaching Engine Error: {str(e)}"
+
+if __name__ == "__main__":
+    # Standard test execution
+    print("\n--- MCPATTY COACH IS ANALYZING ---")
+    print(get_coaching_advice())
+    print("\n--- END OF BRIEFING ---")

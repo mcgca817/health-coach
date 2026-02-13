@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Load environment variables
 load_dotenv('/opt/healthcoach/.env')
 
-from bot.handlers import start, help_command, get_plan, status
+from app.bot.handlers import start, help_command, get_plan, status, coach_command
 
 def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -28,6 +28,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("plan", get_plan))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("coach", coach_command))
 
     print("Bot is polling...")
     app.run_polling()

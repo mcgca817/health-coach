@@ -2,6 +2,7 @@
   become: yes
   timezone:
     name: Pacific/Auckland
+
 # Deploy the Health Coach application
 - name: Copy application code
   synchronize:
@@ -63,7 +64,7 @@
 
 - name: Check if database is initialized
   shell: |
-    docker exec healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }} -c "SELECT 1 FROM schema_version LIMIT 1;" || echo "not_initialized"
+    docker exec healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }} -c "SELECT 1 FROM daily_biometrics LIMIT 1;" || echo "not_initialized"
   register: db_check
   changed_when: false
 
@@ -82,6 +83,8 @@
     - healthcoach-bot.service.j2
     - healthcoach-decision.service.j2
     - healthcoach-decision.timer.j2
+    - health-sync.service.j2
+    - health-sync.timer.j2
   notify: Reload systemd
 
 - name: Enable and start Telegram Bot
@@ -96,5 +99,12 @@
   become: yes
   systemd:
     name: healthcoach-decision.timer
+    state: started
+    enabled: yes
+
+- name: Enable and start Health Sync Timer
+  become: yes
+  systemd:
+    name: health-sync.timer
     state: started
     enabled: yes
