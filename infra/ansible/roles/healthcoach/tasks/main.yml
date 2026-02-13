@@ -108,3 +108,19 @@
     name: health-sync.timer
     state: started
     enabled: yes
+
+- name: Ensure Google config directory exists
+  ansible.builtin.file:
+    path: "/opt/healthcoach/config/google"
+    state: directory
+    owner: cameron
+    group: cameron
+    mode: '0755'
+
+- name: Deploy Google Service Account key
+  ansible.builtin.copy:
+    src: "service_account.json"
+    dest: "/opt/healthcoach/config/google/service_account.json"
+    owner: cameron
+    group: cameron
+    mode: '0600'  # Strict permissions: read/write only for the owner
