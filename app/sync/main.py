@@ -13,8 +13,43 @@ load_dotenv('/opt/healthcoach/.env')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db import get_cursor, log_job_start, log_job_success, log_job_failure
-from sync.sparky import fetch_recent_data
-from sync.intervals import fetch_wellness_data
+from sync.sparky import fetch_recent_data, fetch_food_logs
+from sync.intervals import fetch_wellness_data, fetch_activities_data
+
+def setup_database(cur):
+    """Ensures all necessary tables exist before syncing."""
+    # 1. Activities Table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS activities (
+            id TEXT PRIMARY KEY,
+            date DATE NOT NULL,
+            name TEXT,
+            type TEXT,
+            distance_km NUMERIC(6,2),
+            moving_time_min NUMERIC(6,2),
+            load INTEGER,
+            average_watts INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_activities_date ON activities(date DESC);
+    """)
+
+    # 2. Granular Nutrition Logs Table
+    # Drop first to ensure schema update (adding carbs/fat columns)
+    cur.execute("DROP TABLE IF EXISTS nutrition_logs;")
+    cur.execute("""
+        CREATE TABLE nutrition_logs (
+            id SERIAL PRIMARY KEY,
+            date DATE NOT NULL,
+            entry_text TEXT,
+            kcal_actual INTEGER,
+            protein_actual_g NUMERIC(5,1),
+            carbs_actual_g NUMERIC(5,1),
+            fat_actual_g NUMERIC(5,1),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_nut_logs_date ON nutrition_logs(date DESC);
+    """)
 
 def sync_data():
     run_id = log_job_start("daily_sync")
@@ -23,11 +58,16 @@ def sync_data():
     try:
         # 1. Fetch Data
         sparky_data = fetch_recent_data(days=30)
-        intervals_data = fetch_wellness_data(days=30)
+        food_log_data = fetch_food_logs(days=7) 
+        wellness_data = fetch_wellness_data(days=30)
+        activities_data = fetch_activities_data(days=30)
 
         # 2. Write to Database
         with get_cursor() as cur:
-            # --- A. Sync Biometrics (Sparky) ---
+            # A. Setup Schema
+            setup_database(cur)
+
+            # B. Sync Biometrics (Sparky)
             for row in sparky_data['biometrics']:
                 cur.execute("""
                     INSERT INTO daily_biometrics (date, weight_kg, steps)
@@ -37,7 +77,7 @@ def sync_data():
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps)
                 """, (row['date'], row['weight_kg'], row['steps']))
 
-            # --- B. Sync Nutrition (Sparky) ---
+            # C. Sync Nutrition Totals (Sparky)
             for row in sparky_data['nutrition']:
                 cur.execute("""
                     INSERT INTO nutrition_actuals (date, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g)
@@ -49,30 +89,50 @@ def sync_data():
                         fat_actual_g = EXCLUDED.fat_actual_g
                 """, (row['entry_date'], row['calories'], row['protein'], row['carbs'], row['fat']))
 
-            # --- C. Sync Everything Else (Intervals) ---
-            for row in intervals_data:
+            # D. Sync Granular Food Logs (Sparky)
+            for row in food_log_data:
+                # Construct legible entry text: "Oats (Quaker)"
+                name = row['food_name']
+                brand = row['brand_name']
+                entry_text = f"{name} ({brand})" if brand else name
+                
+                cur.execute("""
+                    INSERT INTO nutrition_logs (date, entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (row['entry_date'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat']))
+
+            # E. Sync Wellness (Intervals: CTL, ATL, TSB)
+            for row in wellness_data:
                 cur.execute("""
                     INSERT INTO daily_biometrics 
                     (date, ctl, atl, tsb, resting_hr, hrv, kcal_burned, sleep_hours, weight_kg, steps)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (date) DO UPDATE SET
-                        ctl = EXCLUDED.ctl,
-                        atl = EXCLUDED.atl,
-                        tsb = EXCLUDED.tsb,
+                        ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb,
                         resting_hr = COALESCE(EXCLUDED.resting_hr, daily_biometrics.resting_hr),
                         hrv = COALESCE(EXCLUDED.hrv, daily_biometrics.hrv),
                         kcal_burned = COALESCE(EXCLUDED.kcal_burned, daily_biometrics.kcal_burned),
                         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_biometrics.sleep_hours),
                         weight_kg = COALESCE(EXCLUDED.weight_kg, daily_biometrics.weight_kg),
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps)
-                """, (
-                    row['date'], row['ctl'], row['atl'], row['tsb'], 
-                    row['resting_hr'], row['hrv'], row['kcal_burned'], 
-                    row['sleep_hours'], row['weight_kg'], row['steps']
-                ))
+                """, (row['date'], row['ctl'], row['atl'], row['tsb'], 
+                      row['resting_hr'], row['hrv'], row['kcal_burned'], 
+                      row['sleep_hours'], row['weight_kg'], row['steps']))
 
-        log_job_success(run_id, records_processed=len(intervals_data))
-        print("--- Sync Complete ---")
+            # F. Sync Activities (Intervals)
+            for act in activities_data:
+                cur.execute("""
+                    INSERT INTO activities (id, date, name, type, distance_km, moving_time_min, load, average_watts)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        load = EXCLUDED.load,
+                        average_watts = EXCLUDED.average_watts
+                """, (act['id'], act['date'], act['name'], act['type'], 
+                      act['distance_km'], act['moving_time_min'], act['load'], act['average_watts']))
+
+        log_job_success(run_id, records_processed=len(wellness_data))
+        print(f"--- Sync Complete: {len(activities_data)} activities, {len(food_log_data)} food entries ---")
 
     except Exception as e:
         log_job_failure(run_id, str(e))
