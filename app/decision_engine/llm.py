@@ -1,19 +1,15 @@
 import os
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta # <--- Added datetime
 from app.db import get_cursor
 
 def get_verbose_status():
-    """
-    Constructs the McPatty Performance Dashboard:
-    1. Performance metrics (CTL/ATL/TSB)
-    2. 30-day biometric table
-    3. 7-day GRANULAR food logs with Macros
-    4. 7-day activity summary
-    """
     today = date.today()
     thirty_days_ago = today - timedelta(days=30)
     seven_days_ago = today - timedelta(days=7)
     yesterday = today - timedelta(days=1)
+    
+    # Capture exact time of report generation
+    now_str = datetime.now().strftime("%H:%M:%S")
 
     with get_cursor() as cur:
         # 1. Fetch 30-Day Table & Load Metrics
@@ -46,18 +42,21 @@ def get_verbose_status():
         """, (seven_days_ago, yesterday))
         training = cur.fetchall()
 
-    return format_report(stats, food_logs, training)
+    return format_report(stats, food_logs, training, now_str)
 
-def format_report(stats, food, training):
+def format_report(stats, food, training, now_str):
     if not stats: return "No data found."
     
-    # Header: Latest Performance metrics
+    # Filter out 0-protein days for the average
+    valid_protein_days = [r['protein_actual_g'] for r in stats if (r['protein_actual_g'] or 0) > 0]
+    avg_protein = sum(valid_protein_days) / len(valid_protein_days) if valid_protein_days else 0.0
+
     curr = stats[0]
     report = [
-        "### 🛡️ MCPATTY PERFORMANCE STATUS",
+        f"### 🛡️ MCPATTY PERFORMANCE STATUS (Updated: {now_str})", # <--- Timestamp Added
         f"**Fitness (CTL):** {curr['ctl'] or 0} | **Fatigue (ATL):** {curr['atl'] or 0}",
         f"**Form (TSB):** {curr['tsb'] or 0}",
-        f"**Avg Protein (30d):** {sum(r['protein_actual_g'] or 0 for r in stats)/len(stats):.1f}g",
+        f"**Avg Protein (Active Days):** {avg_protein:.1f}g",
         "",
         "**📊 30-DAY BIOMETRICS**",
         "| Date | Weight | HRV | Burn | Eat | Net | Prot |",
@@ -78,7 +77,6 @@ def format_report(stats, food, training):
             report.append(f"\n**{f['date']}**")
             current_date = f['date']
         
-        # Safe float conversion
         p = float(f['protein_actual_g'] or 0)
         c = float(f['carbs_actual_g'] or 0)
         ft = float(f['fat_actual_g'] or 0)
