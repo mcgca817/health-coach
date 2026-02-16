@@ -1,6 +1,6 @@
 """
 Main entry point for Data Sync.
-Pulls from SparkyFitness & Intervals.icu -> Pushes to HealthCoach DB.
+Pulls from SparkyFitness & Intervals.icu & Google Sheets -> Pushes to HealthCoach DB.
 """
 import sys
 import os
@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import get_cursor, log_job_start, log_job_success, log_job_failure
 from sync.sparky import fetch_recent_data, fetch_food_logs
 from sync.intervals import fetch_wellness_data, fetch_activities_data
+from sync.sync_sheets import sync_and_update  # <--- ADDED IMPORT
 
 def setup_database(cur):
     """Ensures all necessary tables exist before syncing."""
@@ -35,10 +36,8 @@ def setup_database(cur):
     """)
 
     # 2. Granular Nutrition Logs Table
-    # Drop first to ensure schema update (adding carbs/fat columns)
-    cur.execute("DROP TABLE IF EXISTS nutrition_logs;")
     cur.execute("""
-        CREATE TABLE nutrition_logs (
+        CREATE TABLE IF NOT EXISTS nutrition_logs (
             id SERIAL PRIMARY KEY,
             date DATE NOT NULL,
             entry_text TEXT,
@@ -48,7 +47,7 @@ def setup_database(cur):
             fat_actual_g NUMERIC(5,1),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
-        CREATE INDEX idx_nut_logs_date ON nutrition_logs(date DESC);
+        CREATE INDEX IF NOT EXISTS idx_nut_logs_date ON nutrition_logs(date DESC);
     """)
 
 def sync_data():
@@ -90,8 +89,8 @@ def sync_data():
                 """, (row['entry_date'], row['calories'], row['protein'], row['carbs'], row['fat']))
 
             # D. Sync Granular Food Logs (Sparky)
+            cur.execute("DELETE FROM nutrition_logs WHERE date >= CURRENT_DATE - INTERVAL '7 days'")
             for row in food_log_data:
-                # Construct legible entry text: "Oats (Quaker)"
                 name = row['food_name']
                 brand = row['brand_name']
                 entry_text = f"{name} ({brand})" if brand else name
@@ -105,18 +104,17 @@ def sync_data():
             for row in wellness_data:
                 cur.execute("""
                     INSERT INTO daily_biometrics 
-                    (date, ctl, atl, tsb, resting_hr, hrv, kcal_burned, sleep_hours, weight_kg, steps)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (date, ctl, atl, tsb, resting_hr, hrv, sleep_hours, weight_kg, steps)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (date) DO UPDATE SET
                         ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb,
                         resting_hr = COALESCE(EXCLUDED.resting_hr, daily_biometrics.resting_hr),
                         hrv = COALESCE(EXCLUDED.hrv, daily_biometrics.hrv),
-                        kcal_burned = COALESCE(EXCLUDED.kcal_burned, daily_biometrics.kcal_burned),
                         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_biometrics.sleep_hours),
                         weight_kg = COALESCE(EXCLUDED.weight_kg, daily_biometrics.weight_kg),
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps)
                 """, (row['date'], row['ctl'], row['atl'], row['tsb'], 
-                      row['resting_hr'], row['hrv'], row['kcal_burned'], 
+                      row['resting_hr'], row['hrv'], 
                       row['sleep_hours'], row['weight_kg'], row['steps']))
 
             # F. Sync Activities (Intervals)
@@ -131,8 +129,15 @@ def sync_data():
                 """, (act['id'], act['date'], act['name'], act['type'], 
                       act['distance_km'], act['moving_time_min'], act['load'], act['average_watts']))
 
+        # G. Sync Google Sheets (Added to fix Burn Data)
+        print("--- Triggering Google Sheets Sync ---")
+        try:
+            sync_and_update()
+        except Exception as sheet_err:
+            print(f"⚠️ Sheets Sync Warning: {sheet_err}")
+
         log_job_success(run_id, records_processed=len(wellness_data))
-        print(f"--- Sync Complete: {len(activities_data)} activities, {len(food_log_data)} food entries ---")
+        print(f"--- Sync Complete: {len(wellness_data)} wellness, {len(activities_data)} activities, {len(food_log_data)} food entries ---")
 
     except Exception as e:
         log_job_failure(run_id, str(e))

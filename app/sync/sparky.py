@@ -47,14 +47,15 @@ def fetch_recent_data(days=30):
                 if row['weight']: merged_bio[d_str]['weight_kg'] = float(row['weight'])
                 if row['steps']: merged_bio[d_str]['steps'] = int(row['steps'])
 
-            # 2. Nutrition Totals (Aggregated)
+            # 2. Nutrition Totals (Calculated from Quantity)
+            # Fix: (quantity / serving_size) * calories
             cur.execute("""
                 SELECT 
                     entry_date, 
-                    SUM(calories) as calories, 
-                    SUM(protein) as protein, 
-                    SUM(carbs) as carbs, 
-                    SUM(fat) as fat
+                    SUM((quantity / NULLIF(serving_size, 0)) * calories) as calories, 
+                    SUM((quantity / NULLIF(serving_size, 0)) * protein) as protein, 
+                    SUM((quantity / NULLIF(serving_size, 0)) * carbs) as carbs, 
+                    SUM((quantity / NULLIF(serving_size, 0)) * fat) as fat
                 FROM food_entries
                 WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
                 GROUP BY entry_date
@@ -70,19 +71,20 @@ def fetch_recent_data(days=30):
     return data
 
 def fetch_food_logs(days=7):
-    """Fetches granular food entries (Food Name, Brand, Macros)."""
+    """Fetches granular food entries with calculated macros."""
     conn = get_sparky_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Fix: Calculate actuals based on quantity eaten
             cur.execute("""
                 SELECT 
                     entry_date, 
                     food_name,
                     brand_name, 
-                    calories, 
-                    protein,
-                    carbs,
-                    fat
+                    (quantity / NULLIF(serving_size, 0)) * calories as calories, 
+                    (quantity / NULLIF(serving_size, 0)) * protein as protein,
+                    (quantity / NULLIF(serving_size, 0)) * carbs as carbs,
+                    (quantity / NULLIF(serving_size, 0)) * fat as fat
                 FROM food_entries
                 WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
                 ORDER BY entry_date DESC, created_at ASC
