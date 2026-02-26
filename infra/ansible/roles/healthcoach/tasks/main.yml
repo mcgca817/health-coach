@@ -124,3 +124,18 @@
     owner: cameron
     group: cameron
     mode: '0600'  # Strict permissions: read/write only for the owner
+
+- name: Ensure log directory exists
+  file:
+    path: /opt/healthcoach/logs
+    state: directory
+    mode: '0755'
+    owner: cameron
+
+- name: Schedule Google Sheets Sync (Every 30 mins)
+  cron:
+    name: "sync_health_metrics"
+    minute: "*/30"
+    job: "/opt/healthcoach/venv/bin/python3 /opt/healthcoach/app/sync/sync_sheets.py >> /opt/healthcoach/logs/sync.log 2>&1"
+    user: cameron
+

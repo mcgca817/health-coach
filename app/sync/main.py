@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import get_cursor, log_job_start, log_job_success, log_job_failure
 from sync.sparky import fetch_recent_data, fetch_food_logs
 from sync.intervals import fetch_wellness_data, fetch_activities_data
-from sync.sync_sheets import sync_and_update  # <--- ADDED IMPORT
+from sync.sync_sheets import sync_and_update
 
 def setup_database(cur):
     """Ensures all necessary tables exist before syncing."""
@@ -45,6 +45,7 @@ def setup_database(cur):
             protein_actual_g NUMERIC(5,1),
             carbs_actual_g NUMERIC(5,1),
             fat_actual_g NUMERIC(5,1),
+            fibre_actual_g NUMERIC(5,1),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_nut_logs_date ON nutrition_logs(date DESC);
@@ -79,14 +80,15 @@ def sync_data():
             # C. Sync Nutrition Totals (Sparky)
             for row in sparky_data['nutrition']:
                 cur.execute("""
-                    INSERT INTO nutrition_actuals (date, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO nutrition_actuals (date, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (date) DO UPDATE SET
                         kcal_actual = EXCLUDED.kcal_actual,
                         protein_actual_g = EXCLUDED.protein_actual_g,
                         carbs_actual_g = EXCLUDED.carbs_actual_g,
-                        fat_actual_g = EXCLUDED.fat_actual_g
-                """, (row['entry_date'], row['calories'], row['protein'], row['carbs'], row['fat']))
+                        fat_actual_g = EXCLUDED.fat_actual_g,
+                        fibre_actual_g = EXCLUDED.fibre_actual_g
+                """, (row['entry_date'], row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
 
             # D. Sync Granular Food Logs (Sparky)
             cur.execute("DELETE FROM nutrition_logs WHERE date >= CURRENT_DATE - INTERVAL '7 days'")
@@ -96,9 +98,9 @@ def sync_data():
                 entry_text = f"{name} ({brand})" if brand else name
                 
                 cur.execute("""
-                    INSERT INTO nutrition_logs (date, entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (row['entry_date'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat']))
+                    INSERT INTO nutrition_logs (date, entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (row['entry_date'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
 
             # E. Sync Wellness (Intervals: CTL, ATL, TSB)
             for row in wellness_data:

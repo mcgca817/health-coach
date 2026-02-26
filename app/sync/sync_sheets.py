@@ -22,49 +22,52 @@ def clean_kcal(val):
     """Strips ' kcal', commas, and units to return a clean float."""
     if not val or pd.isna(val):
         return 0.0
-    # Use regex to keep only digits and decimal points
     numeric_part = re.sub(r"[^\d.]", "", str(val))
     try:
         return float(numeric_part)
     except ValueError:
         return 0.0
 
-def update_database(df):
-    """Parses the DataFrame and upserts calculated TDEE into Postgres."""
-    with get_cursor() as cur:
-        count = 0
-        for _, row in df.iterrows():
-            try:
-                raw_date = str(row.get('Date', '')).strip()
-                if not raw_date or raw_date == 'Date': continue
-                
-                # 1. Parse NZ Date Format (DD/MM/YYYY) for Postgres compatibility
-                try:
-                    clean_date = datetime.strptime(raw_date, "%d/%m/%Y").date()
-                except ValueError:
-                    # Fallback for ISO or other formats
-                    clean_date = pd.to_datetime(raw_date).date()
+def clean_pct(val):
+    """Strips '%' and returns a clean float."""
+    if not val or pd.isna(val) or str(val).strip() == '':
+        return None
+    numeric_part = re.sub(r"[^\d.]", "", str(val))
+    try:
+        return float(numeric_part)
+    except ValueError:
+        return None
 
-                # 2. Extract and Sum Active + Resting Energy
-                active = clean_kcal(row.get('Active Energy'))
-                resting = clean_kcal(row.get('Resting Energy'))
-                total_burn = int(active + resting)
+def parse_date(raw_date):
+    """Normalizes the date string into a Python date object."""
+    raw_date = str(raw_date).strip()
+    if not raw_date or raw_date.lower() == 'date': 
+        return None
+    try:
+        return datetime.strptime(raw_date, "%d/%m/%Y").date()
+    except ValueError:
+        try:
+            return pd.to_datetime(raw_date).date()
+        except Exception:
+            return None
 
-                if total_burn <= 0: continue
-
-                # 3. UPSERT into daily_biometrics
-                cur.execute("""
-                    INSERT INTO daily_biometrics (date, kcal_burned)
-                    VALUES (%s, %s)
-                    ON CONFLICT (date) DO UPDATE 
-                    SET kcal_burned = EXCLUDED.kcal_burned
-                """, (clean_date, total_burn))
-                count += 1
-                
-            except Exception as e:
-                print(f"      ⚠️ Row Error for {raw_date}: {e}")
+def fetch_sheet_data(sh, sheet_name):
+    """Fetches a worksheet and returns a DataFrame with lowercase headers."""
+    try:
+        worksheet = sh.worksheet(sheet_name)
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            return pd.DataFrame()
         
-        print(f"    ✅ Successfully upserted {count} rows.")
+        headers = [str(h).strip().lower() for h in all_values[0]]
+        df = pd.DataFrame(all_values[1:], columns=headers)
+        return df
+    except gspread.exceptions.WorksheetNotFound:
+        print(f"  ❌ ERROR: '{sheet_name}' tab not found.")
+        return pd.DataFrame()
+    except Exception as e:
+        print(f"  ❌ ERROR reading '{sheet_name}': {e}")
+        return pd.DataFrame()
 
 def sync_and_update():
     print("🚀 Starting Google Sheets Sync...")
@@ -78,24 +81,72 @@ def sync_and_update():
         sh = gc.open_by_key(HEALTH_METRICS_ID)
         print(f"✅ Opened Spreadsheet: {sh.title}")
         
-        # We specifically target the 'Daily Metrics' tab
-        try:
-            worksheet = sh.worksheet("Daily Metrics")
-            print(f"  📂 Processing: [Daily Metrics]")
+        # Dictionary to hold merged data keyed by date
+        # Format: { date_obj: {'kcal_burned': int, 'body_fat_pct': float} }
+        merged_data = {}
+
+        # 1. Fetch Energy Data from 'Daily Metrics'
+        print(f"  📂 Processing: [Daily Metrics]")
+        df_daily = fetch_sheet_data(sh, "Daily Metrics")
+        if not df_daily.empty and 'date' in df_daily.columns:
+            for _, row in df_daily.iterrows():
+                d = parse_date(row.get('date'))
+                if not d: continue
+                
+                active = clean_kcal(row.get('active energy'))
+                resting = clean_kcal(row.get('resting energy'))
+                total_burn = int(active + resting) if (active > 0 or resting > 0) else None
+                
+                if d not in merged_data: merged_data[d] = {}
+                merged_data[d]['kcal_burned'] = total_burn
+
+        # 2. Fetch Body Fat from 'Weight'
+        print(f"  📂 Processing: [Weight]")
+        df_weight = fetch_sheet_data(sh, "Weight")
+        if not df_weight.empty and 'date' in df_weight.columns:
+            for _, row in df_weight.iterrows():
+                d = parse_date(row.get('date'))
+                if not d: continue
+                
+                bf_raw = row.get('fat')
+                bf_pct = clean_pct(bf_raw)
+                
+                if d not in merged_data: merged_data[d] = {}
+                merged_data[d]['body_fat_pct'] = bf_pct
+        elif df_weight.empty:
+            print("  ⚠️ Skipping Weight processing as sheet could not be loaded.")
+        else:
+            print("  ⚠️ WARNING: Could not find a 'date' column in the Weight sheet!")
+
+        # 3. Upsert into Database
+        with get_cursor() as cur:
+            count = 0
+            bf_count = 0
             
-            all_values = worksheet.get_all_values()
-            if not all_values:
-                print("  ⚠️ Worksheet is empty.")
-                return
+            for sync_date, metrics in merged_data.items():
+                kcal_burned = metrics.get('kcal_burned')
+                body_fat_pct = metrics.get('body_fat_pct')
+                
+                if kcal_burned is None and body_fat_pct is None:
+                    continue
+                    
+                if body_fat_pct is not None:
+                    bf_count += 1
+                
+                try:
+                    cur.execute("""
+                        INSERT INTO daily_biometrics (date, kcal_burned, body_fat_pct)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (date) DO UPDATE 
+                        SET 
+                            kcal_burned = COALESCE(EXCLUDED.kcal_burned, daily_biometrics.kcal_burned),
+                            body_fat_pct = COALESCE(EXCLUDED.body_fat_pct, daily_biometrics.body_fat_pct)
+                    """, (sync_date, kcal_burned, body_fat_pct))
+                    count += 1
+                except Exception as e:
+                    print(f"      ⚠️ Database Error for {sync_date}: {e}")
             
-            # Use first row as headers and create DataFrame
-            headers = [h.strip() for h in all_values[0]]
-            df = pd.DataFrame(all_values[1:], columns=headers)
-            
-            update_database(df)
-            
-        except gspread.exceptions.WorksheetNotFound:
-            print("❌ ERROR: 'Daily Metrics' tab not found in the spreadsheet.")
+            print(f"    ✅ Successfully upserted {count} rows. (Found Body Fat in {bf_count} rows)")
                 
     except Exception as e:
         print(f"❌ Sync Failed: {e}")

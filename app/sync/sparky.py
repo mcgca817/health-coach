@@ -55,7 +55,8 @@ def fetch_recent_data(days=30):
                     SUM((quantity / NULLIF(serving_size, 0)) * calories) as calories, 
                     SUM((quantity / NULLIF(serving_size, 0)) * protein) as protein, 
                     SUM((quantity / NULLIF(serving_size, 0)) * carbs) as carbs, 
-                    SUM((quantity / NULLIF(serving_size, 0)) * fat) as fat
+                    SUM((quantity / NULLIF(serving_size, 0)) * fat) as fat,
+                    SUM((quantity / NULLIF(serving_size, 0)) * dietary_fiber) as fibre_actual_g
                 FROM food_entries
                 WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
                 GROUP BY entry_date
@@ -84,7 +85,8 @@ def fetch_food_logs(days=7):
                     (quantity / NULLIF(serving_size, 0)) * calories as calories, 
                     (quantity / NULLIF(serving_size, 0)) * protein as protein,
                     (quantity / NULLIF(serving_size, 0)) * carbs as carbs,
-                    (quantity / NULLIF(serving_size, 0)) * fat as fat
+                    (quantity / NULLIF(serving_size, 0)) * fat as fat,
+                    (quantity / NULLIF(serving_size, 0)) * dietary_fiber as fibre_actual_g
                 FROM food_entries
                 WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
                 ORDER BY entry_date DESC, created_at ASC

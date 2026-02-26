@@ -5,7 +5,6 @@ from app.db import get_cursor
 def get_verbose_status():
     """
     Constructs the McPatty Performance Dashboard (30-Day History).
-    NOTE: This function is UNTOUCHED as per your request.
     """
     today = date.today()
     thirty_days_ago = today - timedelta(days=30)
@@ -16,27 +15,18 @@ def get_verbose_status():
 
     with get_cursor() as cur:
         # 1. Fetch 30-Day Table
+        # NOTE: Ordered ASC to correctly calculate the rolling 7-day weight EMA.
         cur.execute("""
-            SELECT b.date, b.weight_kg, b.hrv, b.ctl, b.atl, b.tsb,
-                   b.kcal_burned, n.kcal_actual, n.protein_actual_g,
-                   (COALESCE(b.kcal_burned, 0) - COALESCE(n.kcal_actual, 0)) as deficit
+            SELECT b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.ctl, b.atl, b.tsb,
+                   n.kcal_actual, n.protein_actual_g, n.carbs_actual_g, n.fat_actual_g, n.fibre_actual_g
             FROM daily_biometrics b
             LEFT JOIN nutrition_actuals n ON b.date = n.date
             WHERE b.date >= %s AND b.date <= %s
-            ORDER BY b.date DESC;
+            ORDER BY b.date ASC;
         """, (thirty_days_ago, today))
         stats = cur.fetchall()
 
-        # 2. Fetch 7-Day GRANULAR Food Logs
-        cur.execute("""
-            SELECT date, entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g
-            FROM nutrition_logs
-            WHERE date >= %s AND date <= %s
-            ORDER BY date DESC, kcal_actual DESC;
-        """, (seven_days_ago, today))
-        food_logs = cur.fetchall()
-
-        # 3. Fetch 7-Day Training Activities
+        # 2. Fetch 7-Day Training Activities
         cur.execute("""
             SELECT date, name, type, distance_km, moving_time_min, load, average_watts
             FROM activities
@@ -45,9 +35,25 @@ def get_verbose_status():
         """, (seven_days_ago, today))
         training = cur.fetchall()
 
-    return format_report(stats, food_logs, training, now_str)
+    # Calculate 7-Day Weighted Average (Exponential Moving Average) for Weight
+    ema = None
+    for r in stats:
+        w = r['weight_kg']
+        if w is not None:
+            w = float(w)
+            if ema is None:
+                ema = w
+            else:
+                # 7-day EMA smoothing factor (alpha = 2 / (7 + 1) = 0.25)
+                ema = (w * 0.25) + (ema * 0.75)
+        r['weight_ema'] = ema
 
-def format_report(stats, food, training, now_str):
+    # Reverse stats so the most recent day is at the top of the table
+    stats.reverse()
+
+    return format_report(stats, training, now_str)
+
+def format_report(stats, training, now_str):
     if not stats: return "No data found."
     
     # Filter out 0-protein days for the average
@@ -61,30 +67,28 @@ def format_report(stats, food, training, now_str):
         f"**Form (TSB):** {curr['tsb'] or 0}",
         f"**Avg Protein (Active Days):** {avg_protein:.1f}g",
         "",
-        "**📊 30-DAY BIOMETRICS**",
-        "| Date | Weight | HRV | Burn | Eat | Net | Prot |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        "**📊 30-DAY METRICS**",
+        "| Date | Wt | 7dAvg | BF% | Slp | HRV | Kcal | P | C | F | Fib |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
 
     for r in stats:
+        # Shorten date to MM-DD to save horizontal space
+        dt_str = r['date'].strftime('%m-%d') if hasattr(r['date'], 'strftime') else str(r['date'])[-5:]
+        
         w = f"{r['weight_kg']:.1f}" if r['weight_kg'] else "--"
-        report.append(f"| {r['date']} | {w} | {r['hrv'] or '--'} | {r['kcal_burned'] or 0} | {r['kcal_actual'] or 0} | {r['deficit'] or 0} | {r['protein_actual_g'] or 0}g |")
-
-    report.append("\n**🥩 7-DAY FOOD DETAIL**")
-    if not food:
-        report.append("_No detailed food logs available._")
-    
-    current_date = None
-    for f in food:
-        if f['date'] != current_date:
-            report.append(f"\n**{f['date']}**")
-            current_date = f['date']
+        w_avg = f"{r['weight_ema']:.1f}" if r.get('weight_ema') else "--"
+        bf = f"{r['body_fat_pct']:.1f}" if r.get('body_fat_pct') is not None else "--"
+        slp = f"{r['sleep_hours']:.1f}" if r.get('sleep_hours') else "--"
+        hrv = r['hrv'] or "--"
         
-        p = float(f['protein_actual_g'] or 0)
-        c = float(f['carbs_actual_g'] or 0)
-        ft = float(f['fat_actual_g'] or 0)
+        eat = r['kcal_actual'] or 0
+        p = f"{float(r['protein_actual_g'] or 0):.0f}"
+        c = f"{float(r['carbs_actual_g'] or 0):.0f}"
+        f_macro = f"{float(r['fat_actual_g'] or 0):.0f}"
+        fib = f"{float(r['fibre_actual_g'] or 0):.0f}"
         
-        report.append(f"- {f['entry_text']}: {f['kcal_actual']}kcal (P:{p:.0f} C:{c:.0f} F:{ft:.0f})")
+        report.append(f"| {dt_str} | {w} | {w_avg} | {bf} | {slp} | {hrv} | {eat} | {p} | {c} | {f_macro} | {fib} |")
 
     report.append("\n**🚵 7-DAY TRAINING SUMMARY**")
     if not training:
@@ -117,7 +121,7 @@ def get_today_status():
 
         # 2. Fetch TODAY'S Food
         cur.execute("""
-            SELECT entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g
+            SELECT entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g
             FROM nutrition_logs
             WHERE date = %s
             ORDER BY kcal_actual DESC;
@@ -125,8 +129,6 @@ def get_today_status():
         todays_food = cur.fetchall()
 
         # 3. Fetch TODAY'S Training
-        # FIX: Added DISTINCT to remove duplicate entries
-        # FIX: Added ORDER BY load DESC to show hardest workouts first
         cur.execute("""
             SELECT DISTINCT name, distance_km, load, average_watts
             FROM activities
@@ -162,12 +164,13 @@ def get_today_status():
             p = float(f['protein_actual_g'] or 0)
             c = float(f['carbs_actual_g'] or 0)
             ft = float(f['fat_actual_g'] or 0)
+            fib = float(f['fibre_actual_g'] or 0)
             kcal = f['kcal_actual'] or 0
             
             total_kcal += kcal
             total_prot += p
             
-            report.append(f"- {f['entry_text']}: {kcal}kcal (P:{p:.0f} C:{c:.0f} F:{ft:.0f})")
+            report.append(f"- {f['entry_text']}: {kcal}kcal (P:{p:.0f} C:{c:.0f} F:{ft:.0f} Fib:{fib:.0f})")
         
         # Daily Totals Footer
         report.append(f"\n**TOTAL:** {total_kcal} kcal | **{total_prot:.0f}g Protein**")
