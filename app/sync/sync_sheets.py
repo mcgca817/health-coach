@@ -16,7 +16,11 @@ load_dotenv('/opt/healthcoach/.env')
 # --- CONFIGURATION ---
 BASE_DIR = Path("/opt/healthcoach")
 CREDS_FILE = BASE_DIR / "config" / "google" / "service_account.json"
-HEALTH_METRICS_ID = "1SCsxip1B9zm8fV-QybWCdceyj-H1K4yzTH0spdi4Ekw"
+# Healthfit sheet IDs - check both existing and new sheets
+HEALTH_METRICS_IDS = [
+    "1SCsxip1B9zm8fV-QybWCdceyj-H1K4yzTH0spdi4Ekw",  # Existing sheet
+    "1sQAKSu-hN9Du_a3QyG3lb2LpiluWvtP042E3pXxYzVs"   # New sheet
+]
 
 def clean_kcal(val):
     """Strips ' kcal', commas, and units to return a clean float."""
@@ -78,45 +82,57 @@ def sync_and_update():
 
     try:
         gc = gspread.service_account(filename=str(CREDS_FILE))
-        sh = gc.open_by_key(HEALTH_METRICS_ID)
-        print(f"✅ Opened Spreadsheet: {sh.title}")
         
         # Dictionary to hold merged data keyed by date
         # Format: { date_obj: {'kcal_burned': int, 'body_fat_pct': float} }
         merged_data = {}
+        
+        # Process each sheet ID
+        for sheet_id in HEALTH_METRICS_IDS:
+            try:
+                sh = gc.open_by_key(sheet_id)
+                print(f"✅ Opened Spreadsheet: {sh.title} (ID: {sheet_id})")
+                
+                # 1. Fetch Energy Data from 'Daily Metrics'
+                print(f"  📂 Processing: [Daily Metrics] from {sh.title}")
+                df_daily = fetch_sheet_data(sh, "Daily Metrics")
+                if not df_daily.empty and 'date' in df_daily.columns:
+                    for _, row in df_daily.iterrows():
+                        d = parse_date(row.get('date'))
+                        if not d: continue
+                        
+                        active = clean_kcal(row.get('active energy'))
+                        resting = clean_kcal(row.get('resting energy'))
+                        total_burn = int(active + resting) if (active > 0 or resting > 0) else None
+                        
+                        if d not in merged_data: merged_data[d] = {}
+                        # Only update if we don't already have kcal_burned data for this date
+                        if 'kcal_burned' not in merged_data[d] or merged_data[d]['kcal_burned'] is None:
+                            merged_data[d]['kcal_burned'] = total_burn
 
-        # 1. Fetch Energy Data from 'Daily Metrics'
-        print(f"  📂 Processing: [Daily Metrics]")
-        df_daily = fetch_sheet_data(sh, "Daily Metrics")
-        if not df_daily.empty and 'date' in df_daily.columns:
-            for _, row in df_daily.iterrows():
-                d = parse_date(row.get('date'))
-                if not d: continue
-                
-                active = clean_kcal(row.get('active energy'))
-                resting = clean_kcal(row.get('resting energy'))
-                total_burn = int(active + resting) if (active > 0 or resting > 0) else None
-                
-                if d not in merged_data: merged_data[d] = {}
-                merged_data[d]['kcal_burned'] = total_burn
-
-        # 2. Fetch Body Fat from 'Weight'
-        print(f"  📂 Processing: [Weight]")
-        df_weight = fetch_sheet_data(sh, "Weight")
-        if not df_weight.empty and 'date' in df_weight.columns:
-            for _, row in df_weight.iterrows():
-                d = parse_date(row.get('date'))
-                if not d: continue
-                
-                bf_raw = row.get('fat')
-                bf_pct = clean_pct(bf_raw)
-                
-                if d not in merged_data: merged_data[d] = {}
-                merged_data[d]['body_fat_pct'] = bf_pct
-        elif df_weight.empty:
-            print("  ⚠️ Skipping Weight processing as sheet could not be loaded.")
-        else:
-            print("  ⚠️ WARNING: Could not find a 'date' column in the Weight sheet!")
+                # 2. Fetch Body Fat from 'Weight'
+                print(f"  📂 Processing: [Weight] from {sh.title}")
+                df_weight = fetch_sheet_data(sh, "Weight")
+                if not df_weight.empty and 'date' in df_weight.columns:
+                    for _, row in df_weight.iterrows():
+                        d = parse_date(row.get('date'))
+                        if not d: continue
+                        
+                        bf_raw = row.get('fat')
+                        bf_pct = clean_pct(bf_raw)
+                        
+                        if d not in merged_data: merged_data[d] = {}
+                        # Only update if we don't already have body_fat_pct data for this date
+                        if 'body_fat_pct' not in merged_data[d] or merged_data[d]['body_fat_pct'] is None:
+                            merged_data[d]['body_fat_pct'] = bf_pct
+                elif df_weight.empty:
+                    print(f"  ⚠️ Skipping Weight processing from {sh.title} as sheet could not be loaded.")
+                else:
+                    print(f"  ⚠️ WARNING: Could not find a 'date' column in the Weight sheet from {sh.title}!")
+                    
+            except Exception as e:
+                print(f"❌ Failed to access sheet {sheet_id}: {e}")
+                continue
 
         # 3. Upsert into Database
         with get_cursor() as cur:

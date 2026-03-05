@@ -17,7 +17,7 @@ def get_verbose_status():
         # 1. Fetch 30-Day Table
         # NOTE: Ordered ASC to correctly calculate the rolling 7-day weight EMA.
         cur.execute("""
-            SELECT b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.ctl, b.atl, b.tsb,
+            SELECT b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.ctl, b.atl, b.tsb, b.kcal_burned,
                    n.kcal_actual, n.protein_actual_g, n.carbs_actual_g, n.fat_actual_g, n.fibre_actual_g
             FROM daily_biometrics b
             LEFT JOIN nutrition_actuals n ON b.date = n.date
@@ -68,8 +68,8 @@ def format_report(stats, training, now_str):
         f"**Avg Protein (Active Days):** {avg_protein:.1f}g",
         "",
         "**📊 30-DAY METRICS**",
-        "| Date | Wt | 7dAvg | BF% | Slp | HRV | Kcal | P | C | F | Fib |",
-        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        "| Date | Wt | 7dAvg | BF% | Slp | HRV | Eat | Burn | P | C | F | Fib |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
 
     for r in stats:
@@ -83,12 +83,13 @@ def format_report(stats, training, now_str):
         hrv = r['hrv'] or "--"
         
         eat = r['kcal_actual'] or 0
+        burn = r.get('kcal_burned') or 0
         p = f"{float(r['protein_actual_g'] or 0):.0f}"
         c = f"{float(r['carbs_actual_g'] or 0):.0f}"
         f_macro = f"{float(r['fat_actual_g'] or 0):.0f}"
         fib = f"{float(r['fibre_actual_g'] or 0):.0f}"
         
-        report.append(f"| {dt_str} | {w} | {w_avg} | {bf} | {slp} | {hrv} | {eat} | {p} | {c} | {f_macro} | {fib} |")
+        report.append(f"| {dt_str} | {w} | {w_avg} | {bf} | {slp} | {hrv} | {eat} | {burn} | {p} | {c} | {f_macro} | {fib} |")
 
     report.append("\n**🚵 7-DAY TRAINING SUMMARY**")
     if not training:

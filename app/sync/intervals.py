@@ -29,6 +29,9 @@ def fetch_wellness_data(days=30):
                 kcal_burned = day.get('kcal') or day.get('calories')
                 sleep_secs = day.get('sleepSecs') or 0
                 sleep_hrs = round(sleep_secs / 3600, 2) if sleep_secs > 0 else None
+                
+                # Extract body fat
+                body_fat = day.get('bodyFat')
 
                 cleaned_data.append({
                     'date': day.get('id'),
@@ -40,7 +43,8 @@ def fetch_wellness_data(days=30):
                     'kcal_burned': int(kcal_burned) if kcal_burned else None,
                     'weight_kg': day.get('weight'),
                     'sleep_hours': sleep_hrs,
-                    'steps': day.get('steps')
+                    'steps': day.get('steps'),
+                    'body_fat_pct': round(float(body_fat), 1) if body_fat is not None else None
                 })            
             return cleaned_data
         return []
