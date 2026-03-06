@@ -74,6 +74,33 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"⚠️ Today Error: {e}")
         await status_msg.edit_text(f"❌ Error: {str(e)}")
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the /start command."""
+    welcome_text = (
+        "📊 *McPatty Performance Coach Active*\n\n"
+        "Commands:\n"
+        "/today - Quick snapshot of today's nutrition & training\n"
+        "/status - Full 30-day performance report\n"
+        "/sync - Force a manual data synchronization\n" # <-- Add this line
+    )
+    await update.message.reply_text(welcome_text, parse_mode='Markdown')
+
+async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the /sync command (Manual Sync)."""
+    logging.info(f"🔄 Manual sync requested by {update.effective_user.first_name}")
+    status_msg = await update.message.reply_text("🔄 Forcing data synchronization...")
+    await update.message.chat.send_action(action="typing")
+    
+    try:
+        # Run the sync function in a background thread
+        await asyncio.to_thread(sync_data)
+        
+        # Update the message when done
+        await status_msg.edit_text("✅ Sync complete! All data sources are up to date.")
+    except Exception as e:
+        logging.error(f"⚠️ Sync Error: {e}")
+        await status_msg.edit_text(f"❌ Sync failed: {str(e)}")
+
 if __name__ == "__main__":
     if not API_TOKEN:
         logging.error("❌ TELEGRAM_BOT_TOKEN not found.")
@@ -86,5 +113,5 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('status', status))
     application.add_handler(CommandHandler('today', today)) 
-    
+    application.add_handler(CommandHandler('sync', force_sync))      
     application.run_polling()

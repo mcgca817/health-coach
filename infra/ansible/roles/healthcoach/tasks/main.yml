@@ -162,3 +162,31 @@
     src: healthcoach-export.timer.j2
     dest: /etc/systemd/system/healthcoach-export.timer
   notify: Reload systemd
+
+- name: Install rclone and Java
+  become: yes
+  apt:
+    name: 
+      - rclone
+      - openjdk-17-jre-headless
+    state: present
+
+- name: Create rclone config directory
+  file:
+    path: "{{ ansible_facts['env']['HOME'] }}/.config/rclone"
+    state: directory
+    mode: '0700'
+
+- name: Configure rclone for Personal Google Drive
+  template:
+    src: rclone.conf.j2
+    dest: "{{ ansible_facts['env']['HOME'] }}/.config/rclone/rclone.conf"
+    mode: '0600'
+
+- name: Create local export folder
+  file:
+    path: /opt/healthcoach/exports
+    state: directory
+    owner: cameron
+    group: cameron
+    mode: '0755'
