@@ -59,8 +59,8 @@ def fetch_recent_data(days=30):
                     SUM((quantity / NULLIF(serving_size, 0)) * dietary_fiber) as fibre_actual_g
                 FROM food_entries
                 WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
-                GROUP BY entry_date
-                ORDER BY entry_date ASC
+                GROUP BY entry_date::date
+                ORDER BY entry_date::date ASC
             """, (f"{days} days",))
             
             data['nutrition'] = cur.fetchall()

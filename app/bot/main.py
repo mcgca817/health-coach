@@ -12,6 +12,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 # Import BOTH report functions
 from app.decision_engine.llm import get_verbose_status, get_today_status 
 from app.sync.main import sync_data
+from app.sync.daily_export import export_daily_log, export_workouts, sync_to_drive
+from app.bot.handlers import add_journal
 
 # Load environment variables
 load_dotenv('/opt/healthcoach/.env')
@@ -30,6 +32,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Commands:\n"
         "/today - Quick snapshot of today's nutrition & training\n"
         "/status - Full 30-day performance report\n"
+        "/sync - Force a manual data synchronization\n"
+        "/journal <text> - Add a brief journal entry for today\n"
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
@@ -86,17 +90,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
 async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /sync command (Manual Sync)."""
+    """Handles the /sync command (Manual Sync & Drive Export)."""
     logging.info(f"🔄 Manual sync requested by {update.effective_user.first_name}")
-    status_msg = await update.message.reply_text("🔄 Forcing data synchronization...")
+    status_msg = await update.message.reply_text("🔄 Syncing data from Sparky and Intervals...")
     await update.message.chat.send_action(action="typing")
     
     try:
-        # Run the sync function in a background thread
+        # 1. Update the local PostgreSQL database
         await asyncio.to_thread(sync_data)
+        await status_msg.edit_text("✅ Database updated. Generating export for Google Drive...")
         
-        # Update the message when done
-        await status_msg.edit_text("✅ Sync complete! All data sources are up to date.")
+        # 2. Generate the CSVs and push to Google Drive
+        await asyncio.to_thread(export_daily_log)
+        await asyncio.to_thread(export_workouts)
+        await asyncio.to_thread(sync_to_drive)
+        
+        await status_msg.edit_text("✅ Sync complete! Database and Google Drive are fully up to date.")
     except Exception as e:
         logging.error(f"⚠️ Sync Error: {e}")
         await status_msg.edit_text(f"❌ Sync failed: {str(e)}")
@@ -114,4 +123,6 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler('status', status))
     application.add_handler(CommandHandler('today', today)) 
     application.add_handler(CommandHandler('sync', force_sync))      
+    application.add_handler(CommandHandler('journal', add_journal))
     application.run_polling()
+

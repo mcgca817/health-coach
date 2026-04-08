@@ -2,6 +2,9 @@ import os
 from datetime import datetime, date, timedelta
 from app.db import get_cursor
 
+
+# In app/decision_engine/llm.py
+
 def get_verbose_status():
     """
     Constructs the McPatty Performance Dashboard (30-Day History).
@@ -15,7 +18,6 @@ def get_verbose_status():
 
     with get_cursor() as cur:
         # 1. Fetch 30-Day Table
-        # NOTE: Ordered ASC to correctly calculate the rolling 7-day weight EMA.
         cur.execute("""
             SELECT b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.ctl, b.atl, b.tsb, b.kcal_burned,
                    n.kcal_actual, n.protein_actual_g, n.carbs_actual_g, n.fat_actual_g, n.fibre_actual_g
@@ -35,6 +37,15 @@ def get_verbose_status():
         """, (seven_days_ago, today))
         training = cur.fetchall()
 
+        # 3. Fetch 7-Day Journal Entries
+        cur.execute("""
+            SELECT date, entry_text, mood
+            FROM journal_entries
+            WHERE date >= %s AND date <= %s
+            ORDER BY date DESC;
+        """, (seven_days_ago, today))
+        journals = cur.fetchall()
+
     # Calculate 7-Day Weighted Average (Exponential Moving Average) for Weight
     ema = None
     for r in stats:
@@ -44,19 +55,19 @@ def get_verbose_status():
             if ema is None:
                 ema = w
             else:
-                # 7-day EMA smoothing factor (alpha = 2 / (7 + 1) = 0.25)
                 ema = (w * 0.25) + (ema * 0.75)
         r['weight_ema'] = ema
 
     # Reverse stats so the most recent day is at the top of the table
     stats.reverse()
 
-    return format_report(stats, training, now_str)
+    # PASSING 4 ARGUMENTS HERE
+    return format_report(stats, training, journals, now_str)
 
-def format_report(stats, training, now_str):
+# ACCEPTING 4 ARGUMENTS HERE
+def format_report(stats, training, journals, now_str):
     if not stats: return "No data found."
     
-    # Filter out 0-protein days for the average
     valid_protein_days = [r['protein_actual_g'] for r in stats if (r['protein_actual_g'] or 0) > 0]
     avg_protein = sum(valid_protein_days) / len(valid_protein_days) if valid_protein_days else 0.0
 
@@ -73,7 +84,6 @@ def format_report(stats, training, now_str):
     ]
 
     for r in stats:
-        # Shorten date to MM-DD to save horizontal space
         dt_str = r['date'].strftime('%m-%d') if hasattr(r['date'], 'strftime') else str(r['date'])[-5:]
         
         w = f"{r['weight_kg']:.1f}" if r['weight_kg'] else "--"
@@ -91,6 +101,15 @@ def format_report(stats, training, now_str):
         
         report.append(f"| {dt_str} | {w} | {w_avg} | {bf} | {slp} | {hrv} | {eat} | {burn} | {p} | {c} | {f_macro} | {fib} |")
 
+    # ADDING THE JOURNAL OUTPUT HERE
+    report.append("\n**📓 7-DAY JOURNAL**")
+    if not journals:
+        report.append("_No recent journal entries._")
+    else:
+        for j in journals:
+            mood_str = f" [{j['mood']}]" if j.get('mood') else ""
+            report.append(f"- {j['date']}{mood_str}: {j['entry_text']}")
+
     report.append("\n**🚵 7-DAY TRAINING SUMMARY**")
     if not training:
         report.append("_No activity logs available._")
@@ -99,6 +118,7 @@ def format_report(stats, training, now_str):
         report.append(f"- {t['date']}: {t['name']} | {t['distance_km']}km | {t['load']} Load | {pwr}")
 
     return "\n".join(report)
+
 
 def get_today_status():
     """

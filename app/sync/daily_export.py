@@ -4,6 +4,8 @@ import requests
 import subprocess
 import pandas as pd
 from datetime import date
+from dotenv import load_dotenv
+load_dotenv('/opt/healthcoach/.env')
 
 # --- PATH BOOTSTRAP ---
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -13,7 +15,7 @@ from app.db import get_cursor
 # --- CONFIG ---
 EXPORT_DIR = "/opt/healthcoach/exports"
 FIT_CSV_TOOL = "/opt/healthcoach/bin/FitCSVTool.jar"
-REMOTE_PATH = "gdrive:Operation Outlive"
+REMOTE_PATH = os.getenv('GDRIVE_REMOTE_PATH', 'gdrive:Operation Outlive')
 MASTER_FILE_NAME = "daily_metrics_master.csv"
 
 def export_daily_log():

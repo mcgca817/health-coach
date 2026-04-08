@@ -6,6 +6,7 @@ import os
 import json
 from telegram import Update
 from telegram.constants import ParseMode
+from datetime import date
 from telegram.ext import ContextTypes
 
 # Add parent directory to path
@@ -119,19 +120,42 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ System Error: {str(e)}")
 
-from app.decision_engine.llm import get_coaching_advice
+#from app.decision_engine.llm import get_coaching_advice
 
-async def coach_command(update, context):
-    """Handler for the /coach command"""
-    # Send an initial 'thinking' message
-    status_msg = await update.message.reply_text("📋 McPatty Coach is reviewing your biometrics...")
+#async def coach_command(update, context):
+#    """Handler for the /coach command"""
+#    # Send an initial 'thinking' message
+#    status_msg = await update.message.reply_text("📋 McPatty Coach is reviewing your biometrics...")
+#    
+#    try:
+#        # Get the tactical briefing
+#        advice = get_coaching_advice()
+#        
+#        # Update the message with the actual advice
+#        await status_msg.edit_text(advice, parse_mode='Markdown')
+#        
+#    except Exception as e:
+#        await status_msg.edit_text(f"❌ Coach hit a technical snag: {str(e)}")
+
+
+# Add the new handler function
+async def add_journal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log a journal entry via Telegram."""
+    if not context.args:
+        await update.message.reply_text("⚠️ Please provide your journal entry.\nUsage: `/journal Feeling strong today, managed the intervals well.`", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    entry_text = " ".join(context.args)
+    today = date.today()
     
     try:
-        # Get the tactical briefing
-        advice = get_coaching_advice()
-        
-        # Update the message with the actual advice
-        await status_msg.edit_text(advice, parse_mode='Markdown')
-        
+        # dict_cursor=False because we aren't fetching rows
+        with get_cursor(dict_cursor=False) as cur:
+            cur.execute("""
+                INSERT INTO journal_entries (date, entry_text)
+                VALUES (%s, %s)
+            """, (today, entry_text))
+            
+        await update.message.reply_text("📓 **Journal entry saved for today!**", parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
-        await status_msg.edit_text(f"❌ Coach hit a technical snag: {str(e)}")
+        await update.message.reply_text(f"❌ Failed to save entry: {str(e)}")
