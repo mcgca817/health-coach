@@ -36,3 +36,4 @@ backups/
 **/host_vars/*.yml
 *.key
 *.pem
+infra/ansible/roles/healthcoach/templates/.env.j2

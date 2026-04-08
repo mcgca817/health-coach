@@ -2,18 +2,20 @@ import os
 import sys
 import logging
 import asyncio
+from datetime import date
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+from telegram.constants import ParseMode
 
 # Ensure 'app' is in the path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-# Import BOTH report functions
+# Import report functions and database utility
 from app.decision_engine.llm import get_verbose_status, get_today_status 
 from app.sync.main import sync_data
 from app.sync.daily_export import export_daily_log, export_workouts, sync_to_drive
-from app.bot.handlers import add_journal
+from app.db import get_cursor
 
 # Load environment variables
 load_dotenv('/opt/healthcoach/.env')
@@ -78,37 +80,56 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"⚠️ Today Error: {e}")
         await status_msg.edit_text(f"❌ Error: {str(e)}")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /start command."""
-    welcome_text = (
-        "📊 *McPatty Performance Coach Active*\n\n"
-        "Commands:\n"
-        "/today - Quick snapshot of today's nutrition & training\n"
-        "/status - Full 30-day performance report\n"
-        "/sync - Force a manual data synchronization\n" # <-- Add this line
-    )
-    await update.message.reply_text(welcome_text, parse_mode='Markdown')
-
 async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /sync command (Manual Sync & Drive Export)."""
     logging.info(f"🔄 Manual sync requested by {update.effective_user.first_name}")
     status_msg = await update.message.reply_text("🔄 Syncing data from Sparky and Intervals...")
     await update.message.chat.send_action(action="typing")
     
+    import io
+    from contextlib import redirect_stdout
+
+    f = io.StringIO()
     try:
-        # 1. Update the local PostgreSQL database
-        await asyncio.to_thread(sync_data)
-        await status_msg.edit_text("✅ Database updated. Generating export for Google Drive...")
+        with redirect_stdout(f):
+            # 1. Update the local PostgreSQL database
+            await asyncio.to_thread(sync_data)
+            
+            # 2. Generate the CSVs and push to Google Drive
+            await asyncio.to_thread(export_daily_log)
+            await asyncio.to_thread(export_workouts)
+            await asyncio.to_thread(sync_to_drive)
         
-        # 2. Generate the CSVs and push to Google Drive
-        await asyncio.to_thread(export_daily_log)
-        await asyncio.to_thread(export_workouts)
-        await asyncio.to_thread(sync_to_drive)
+        output = f.getvalue()
+        # Truncate if too long for Telegram
+        if len(output) > 3500:
+            output = output[:3500] + "\n... (truncated)"
         
-        await status_msg.edit_text("✅ Sync complete! Database and Google Drive are fully up to date.")
+        await status_msg.edit_text(f"✅ **Sync Complete!**\n\n```\n{output}\n```", parse_mode='Markdown')
     except Exception as e:
         logging.error(f"⚠️ Sync Error: {e}")
-        await status_msg.edit_text(f"❌ Sync failed: {str(e)}")
+        output = f.getvalue()
+        await status_msg.edit_text(f"❌ **Sync Failed!**\n\nError: `{str(e)}` \n\nLog:\n```\n{output}\n```", parse_mode='Markdown')
+
+async def add_journal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Log a journal entry via Telegram."""
+    if not context.args:
+        await update.message.reply_text("⚠️ Please provide your journal entry.\nUsage: `/journal Feeling strong today, managed the intervals well.`", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    entry_text = " ".join(context.args)
+    today_date = date.today()
+    
+    try:
+        with get_cursor(dict_cursor=False) as cur:
+            cur.execute("""
+                INSERT INTO journal_entries (date, entry_text)
+                VALUES (%s, %s)
+            """, (today_date, entry_text))
+            
+        await update.message.reply_text("📓 **Journal entry saved for today!**", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to save entry: {str(e)}")
 
 if __name__ == "__main__":
     if not API_TOKEN:
@@ -125,4 +146,3 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler('sync', force_sync))      
     application.add_handler(CommandHandler('journal', add_journal))
     application.run_polling()
-

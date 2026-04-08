@@ -1,0 +1,13 @@
+[Unit]
+Description=Health Coach CSV Export to Google Drive
+After=network.target
+
+[Service]
+Type=oneshot
+User={{ ansible_user }}
+WorkingDirectory=/opt/healthcoach
+EnvironmentFile=/opt/healthcoach/.env
+ExecStart=/opt/healthcoach/venv/bin/python3 /opt/healthcoach/app/sync/daily_export.py
+
+[Install]
+WantedBy=multi-user.target

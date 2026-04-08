@@ -56,8 +56,15 @@ def fetch_activities_data(days=30):
     athlete_id = os.getenv('INTERVALS_ATHLETE_ID')
     api_key = os.getenv('INTERVALS_API_KEY')
     
+    if not athlete_id or not api_key:
+        print("⚠️ Intervals.icu credentials missing for activities.")
+        return []
+
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities"
-    params = {"oldest": (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'), "newest": datetime.now().strftime('%Y-%m-%d')}
+    params = {
+        "oldest": (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'), 
+        "newest": datetime.now().strftime('%Y-%m-%d')
+    }
     
     try:
         response = requests.get(url, params=params, auth=('API_KEY', api_key))

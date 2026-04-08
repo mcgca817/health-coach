@@ -81,10 +81,10 @@
     mode: '0644'
   loop:
     - healthcoach-bot.service.j2
-    - healthcoach-decision.service.j2
-    - healthcoach-decision.timer.j2
     - health-sync.service.j2
     - health-sync.timer.j2
+    - healthcoach-export.service.j2
+    - healthcoach-export.timer.j2
   notify: Reload systemd
 
 - name: Enable and start Telegram Bot
@@ -95,17 +95,17 @@
     enabled: yes
     daemon_reload: yes
 
-- name: Enable and start Decision Timer
-  become: yes
-  systemd:
-    name: healthcoach-decision.timer
-    state: started
-    enabled: yes
-
 - name: Enable and start Health Sync Timer
   become: yes
   systemd:
     name: health-sync.timer
+    state: started
+    enabled: yes
+
+- name: Enable and start Health Coach Export Timer
+  become: yes
+  systemd:
+    name: healthcoach-export.timer
     state: started
     enabled: yes
 
@@ -132,36 +132,35 @@
     mode: '0755'
     owner: cameron
 
-- name: Schedule Google Sheets Sync (Every 30 mins)
-  cron:
-    name: "sync_health_metrics"
-    minute: "*/30"
-    job: "/opt/healthcoach/venv/bin/python3 /opt/healthcoach/app/sync/sync_sheets.py >> /opt/healthcoach/logs/sync.log 2>&1"
-    user: cameron
-
 - name: Install Java for Garmin FitCSVTool
   become: yes
   apt:
     name: openjdk-17-jre-headless
     state: present
 
-- name: Create export and bin directories
+- name: Create bin directory
   file:
-    path: "{{ item }}"
+    path: /opt/healthcoach/bin
     state: directory
     owner: cameron
     group: cameron
     mode: '0755'
-  loop:
-    - /opt/healthcoach/exports
-    - /opt/healthcoach/bin
 
-- name: Deploy Health Coach Export Timer
-  become: yes
-  template:
-    src: healthcoach-export.timer.j2
-    dest: /etc/systemd/system/healthcoach-export.timer
-  notify: Reload systemd
+- name: Download FitCSVTool.jar
+  get_url:
+    url: https://github.com/garmin/fit-sdk-tools/raw/main/FitCSVTool/FitCSVTool.jar
+    dest: /opt/healthcoach/bin/FitCSVTool.jar
+    mode: '0755'
+    owner: cameron
+    group: cameron
+
+- name: Create export directory
+  file:
+    path: /opt/healthcoach/exports
+    state: directory
+    owner: cameron
+    group: cameron
+    mode: '0755'
 
 - name: Install rclone and Java
   become: yes
@@ -182,11 +181,3 @@
     src: rclone.conf.j2
     dest: "{{ ansible_facts['env']['HOME'] }}/.config/rclone/rclone.conf"
     mode: '0600'
-
-- name: Create local export folder
-  file:
-    path: /opt/healthcoach/exports
-    state: directory
-    owner: cameron
-    group: cameron
-    mode: '0755'

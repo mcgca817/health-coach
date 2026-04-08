@@ -62,6 +62,12 @@ def sync_data():
         wellness_data = fetch_wellness_data(days=30)
         activities_data = fetch_activities_data(days=30)
 
+        print(f"--- Fetched Data Counts ---")
+        print(f"Sparky Biometrics: {len(sparky_data.get('biometrics', []))}")
+        print(f"Sparky Nutrition: {len(sparky_data.get('nutrition', []))}")
+        print(f"Intervals Wellness: {len(wellness_data)}")
+        print(f"Intervals Activities: {len(activities_data)}")
+
         # 2. Write to Database
         with get_cursor() as cur:
             # A. Setup Schema
@@ -102,22 +108,32 @@ def sync_data():
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (row['entry_date'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
 
-            # E. Sync Wellness (Intervals: CTL, ATL, TSB)
+            # E. Sync Wellness (Intervals: Sleep, HRV, Weight, Steps)
             for row in wellness_data:
+                # 1. Update Biometrics Table
                 cur.execute("""
                     INSERT INTO daily_biometrics 
-                    (date, ctl, atl, tsb, resting_hr, hrv, sleep_hours, weight_kg, steps)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (date, resting_hr, hrv, sleep_hours, weight_kg, steps)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (date) DO UPDATE SET
-                        ctl = EXCLUDED.ctl, atl = EXCLUDED.atl, tsb = EXCLUDED.tsb,
                         resting_hr = COALESCE(EXCLUDED.resting_hr, daily_biometrics.resting_hr),
                         hrv = COALESCE(EXCLUDED.hrv, daily_biometrics.hrv),
                         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_biometrics.sleep_hours),
                         weight_kg = COALESCE(EXCLUDED.weight_kg, daily_biometrics.weight_kg),
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps)
-                """, (row['date'], row['ctl'], row['atl'], row['tsb'], 
-                      row['resting_hr'], row['hrv'], 
+                """, (row['date'], row['resting_hr'], row['hrv'], 
                       row['sleep_hours'], row['weight_kg'], row['steps']))
+
+                # 2. Update Training Load Table (Performance Metrics)
+                cur.execute("""
+                    INSERT INTO training_load (date, ctl, atl, tsb)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (date) DO UPDATE SET
+                        ctl = EXCLUDED.ctl,
+                        atl = EXCLUDED.atl,
+                        tsb = EXCLUDED.tsb,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (row['date'], row['ctl'], row['atl'], row['tsb']))
 
             # F. Sync Activities (Intervals)
             for act in activities_data:
