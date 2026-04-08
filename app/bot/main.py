@@ -15,6 +15,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from app.decision_engine.llm import get_verbose_status, get_today_status 
 from app.sync.main import sync_data
 from app.sync.daily_export import export_daily_log, export_workouts, sync_to_drive
+from app.sync.historic_sync import run_historic_sync
 from app.db import get_cursor
 
 # Load environment variables
@@ -35,6 +36,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/today - Quick snapshot of today's nutrition & training\n"
         "/status - Full 30-day performance report\n"
         "/sync - Force a manual data synchronization\n"
+        "/historicsync - Perform a one-off 2-year historic metrics sync\n"
         "/journal <text> - Add a brief journal entry for today\n"
     )
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
@@ -111,6 +113,34 @@ async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
         output = f.getvalue()
         await status_msg.edit_text(f"❌ **Sync Failed!**\n\nError: `{str(e)}` \n\nLog:\n```\n{output}\n```", parse_mode='Markdown')
 
+async def force_historic_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles the /historicsync command (One-off Historic Export)."""
+    logging.info(f"🚀 Historic sync requested by {update.effective_user.first_name}")
+    status_msg = await update.message.reply_text("🚀 Starting historic sync (metrics only)...")
+    await update.message.chat.send_action(action="typing")
+    
+    import io
+    from contextlib import redirect_stdout
+
+    f = io.StringIO()
+    try:
+        with redirect_stdout(f):
+            # 1. Update the local PostgreSQL database (full sync first)
+            await asyncio.to_thread(sync_data)
+            
+            # 2. Generate the historic CSV and push to Google Drive
+            await asyncio.to_thread(run_historic_sync)
+        
+        output = f.getvalue()
+        if len(output) > 3500:
+            output = output[:3500] + "\n... (truncated)"
+        
+        await status_msg.edit_text(f"✅ **Historic Sync Complete!**\n\n```\n{output}\n```", parse_mode='Markdown')
+    except Exception as e:
+        logging.error(f"⚠️ Historic Sync Error: {e}")
+        output = f.getvalue()
+        await status_msg.edit_text(f"❌ **Historic Sync Failed!**\n\nError: `{str(e)}` \n\nLog:\n```\n{output}\n```", parse_mode='Markdown')
+
 async def add_journal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Log a journal entry via Telegram."""
     if not context.args:
@@ -143,6 +173,7 @@ if __name__ == "__main__":
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('status', status))
     application.add_handler(CommandHandler('today', today)) 
-    application.add_handler(CommandHandler('sync', force_sync))      
+    application.add_handler(CommandHandler('sync', force_sync))
+    application.add_handler(CommandHandler('historicsync', force_historic_sync))      
     application.add_handler(CommandHandler('journal', add_journal))
     application.run_polling()
