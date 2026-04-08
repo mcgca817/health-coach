@@ -34,6 +34,7 @@ def export_daily_log(days_back=30):
             SELECT 
                 COALESCE(b.date, n.date, t.date) as date,
                 b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, 
+                b.resting_hr, b.steps,
                 t.ctl, t.atl, t.tsb, b.kcal_burned,
                 n.kcal_actual, n.protein_actual_g, n.carbs_actual_g, n.fat_actual_g, n.fibre_actual_g
             FROM daily_biometrics b
@@ -43,6 +44,7 @@ def export_daily_log(days_back=30):
             ORDER BY date ASC
         """, (start_date,))
         rows = cur.fetchall()
+
         
         print(f"Found {len(rows)} rows in database for this period.")
         
