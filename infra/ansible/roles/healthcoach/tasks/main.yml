@@ -26,6 +26,12 @@
     dest: /opt/healthcoach/sql/
     delete: no
 
+- name: Copy test files
+  synchronize:
+    src: "{{ playbook_dir }}/../../../tests/"
+    dest: /opt/healthcoach/tests/
+    delete: yes
+
 - name: Create env file from template
   become: yes
   template:
