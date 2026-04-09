@@ -19,10 +19,13 @@ def get_verbose_status():
     with get_cursor() as cur:
         # 1. Fetch 30-Day Table
         cur.execute("""
-            SELECT b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.ctl, b.atl, b.tsb, b.kcal_burned,
-                   n.kcal_actual, n.protein_actual_g, n.carbs_actual_g, n.fat_actual_g, n.fibre_actual_g
+            SELECT 
+                b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.kcal_burned,
+                t.ctl, t.atl, t.tsb,
+                n.kcal_actual, n.protein_actual_g, n.carbs_actual_g, n.fat_actual_g, n.fibre_actual_g
             FROM daily_biometrics b
             LEFT JOIN nutrition_actuals n ON b.date = n.date
+            LEFT JOIN training_load t ON b.date = t.date
             WHERE b.date >= %s AND b.date <= %s
             ORDER BY b.date ASC;
         """, (thirty_days_ago, today))
@@ -132,9 +135,10 @@ def get_today_status():
     with get_cursor() as cur:
         # 1. Fetch 30-Day Stats (Needed ONLY for the Header averages/metrics)
         cur.execute("""
-            SELECT b.date, b.ctl, b.atl, b.tsb, n.protein_actual_g
+            SELECT b.date, t.ctl, t.atl, t.tsb, n.protein_actual_g
             FROM daily_biometrics b
             LEFT JOIN nutrition_actuals n ON b.date = n.date
+            LEFT JOIN training_load t ON b.date = t.date
             WHERE b.date >= %s AND b.date <= %s
             ORDER BY b.date DESC;
         """, (thirty_days_ago, today))
