@@ -46,9 +46,9 @@ def test_format_report_with_data():
     report = format_report(stats, training, journals, "12:00:00")
     
     assert "MCPATTY PERFORMANCE STATUS" in report
-    assert "Fitness (CTL): 50" in report
-    assert "Fatigue (ATL): 60" in report
-    assert "Form (TSB): -10" in report
+    assert "**Fitness (CTL):** 50" in report
+    assert "**Fatigue (ATL):** 60" in report
+    assert "**Form (TSB):** -10" in report
     assert "Morning Run" in report
     assert "5.0km" in report
     assert "50 Load" in report
