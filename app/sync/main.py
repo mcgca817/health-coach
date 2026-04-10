@@ -122,6 +122,7 @@ def sync_data():
             # E. Sync Wellness (Sleep, HRV, Performance Metrics from Intervals.icu)
             for row in wellness_data:
                 # 1. Update Biometrics Table (Health metrics)
+                # Note: We only update kcal_burned if Intervals actually provides it (> 0)
                 cur.execute("""
                     INSERT INTO daily_biometrics 
                     (date, resting_hr, hrv, sleep_hours, weight_kg, steps, kcal_burned)
@@ -132,9 +133,12 @@ def sync_data():
                         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_biometrics.sleep_hours),
                         weight_kg = COALESCE(EXCLUDED.weight_kg, daily_biometrics.weight_kg),
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps),
-                        kcal_burned = COALESCE(EXCLUDED.kcal_burned, daily_biometrics.kcal_burned)
+                        kcal_burned = CASE 
+                            WHEN EXCLUDED.kcal_burned > 0 THEN EXCLUDED.kcal_burned 
+                            ELSE daily_biometrics.kcal_burned 
+                        END
                 """, (row['date'], row['resting_hr'], row['hrv'], 
-                      row['sleep_hours'], row['weight_kg'], row['steps'], row['kcal_burned']))
+                      row['sleep_hours'], row['weight_kg'], row['steps'], row['kcal_burned'] or 0))
 
                 # 2. Update Training Load Table (Performance/Fitness metrics)
                 cur.execute("""
