@@ -29,6 +29,25 @@ services:
       WATCHTOWER_NOTIFICATIONS: shoutrrr
       WATCHTOWER_NOTIFICATION_URL: telegram://{{ telegram_alerts_token }}@telegram/?channels={{ telegram_alerts_chat_id }}
 
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: healthcoach-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_NAME=Main Org.
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/health_coach.json
+    volumes:
+      - /opt/healthcoach/grafana/data:/var/lib/grafana
+      - /opt/healthcoach/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+
 {% if env_name == "test" %}
   watchtower-canary:
     image: alpine:latest

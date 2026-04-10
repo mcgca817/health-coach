@@ -49,6 +49,51 @@
     group: "{{ ansible_user }}"
     mode: '0644'
 
+- name: Ensure Grafana directories exist
+  become: yes
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "472"
+    group: "472"
+    mode: '0755'
+  loop:
+    - /opt/healthcoach/grafana
+    - /opt/healthcoach/grafana/data
+    - /opt/healthcoach/grafana/provisioning
+    - /opt/healthcoach/grafana/provisioning/datasources
+    - /opt/healthcoach/grafana/provisioning/dashboards
+    - /opt/healthcoach/grafana/provisioning/plugins
+    - /opt/healthcoach/grafana/provisioning/notifiers
+    - /opt/healthcoach/grafana/provisioning/alerting
+
+- name: Deploy Grafana datasource provisioning
+  become: yes
+  template:
+    src: "grafana/provisioning/datasources/postgres.yml.j2"
+    dest: /opt/healthcoach/grafana/provisioning/datasources/postgres.yml
+    owner: "472"
+    group: "472"
+    mode: '0644'
+
+- name: Deploy Grafana dashboard provider config
+  become: yes
+  copy:
+    src: "grafana/provisioning/dashboards/dashboards.yml"
+    dest: /opt/healthcoach/grafana/provisioning/dashboards/dashboards.yml
+    owner: "472"
+    group: "472"
+    mode: '0644'
+
+- name: Deploy Health Coach dashboard JSON
+  become: yes
+  copy:
+    src: "grafana/dashboards/health_coach.json"
+    dest: /opt/healthcoach/grafana/provisioning/dashboards/health_coach.json
+    owner: "472"
+    group: "472"
+    mode: '0644'
+
 - name: Install Python dependencies
   pip:
     requirements: /opt/healthcoach/app/requirements.txt
