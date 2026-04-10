@@ -22,6 +22,9 @@ from app.db import get_cursor
 load_dotenv('/opt/healthcoach/.env')
 API_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
+# Global lock to prevent concurrent sync operations
+SYNC_LOCK = asyncio.Lock()
+
 # Enable logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -43,13 +46,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /status command (Full Report)."""
+    if SYNC_LOCK.locked():
+        await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
+        return
+
     logging.info(f"📡 Status requested by {update.effective_user.first_name}")
     status_msg = await update.message.reply_text("🔄 Syncing full history...")
     await update.message.chat.send_action(action="typing")
     
     try:
-        await asyncio.to_thread(sync_data)
-        report = await asyncio.to_thread(get_verbose_status)
+        async with SYNC_LOCK:
+            await asyncio.to_thread(sync_data)
+            report = await asyncio.to_thread(get_verbose_status)
+        
         await status_msg.delete()
         
         if len(report) > 4000:
@@ -63,16 +72,21 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /today command (Quick Snapshot)."""
+    if SYNC_LOCK.locked():
+        await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
+        return
+
     logging.info(f"⚡ Today requested by {update.effective_user.first_name}")
     status_msg = await update.message.reply_text("🔄 Syncing today's data...")
     await update.message.chat.send_action(action="typing")
     
     try:
-        # 1. Sync Data (Fast check)
-        await asyncio.to_thread(sync_data)
-        
-        # 2. Get Today's Summary
-        report = await asyncio.to_thread(get_today_status)
+        async with SYNC_LOCK:
+            # 1. Sync Data (Fast check)
+            await asyncio.to_thread(sync_data)
+            
+            # 2. Get Today's Summary
+            report = await asyncio.to_thread(get_today_status)
         
         # 3. Send
         await status_msg.delete()
@@ -84,6 +98,10 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /sync command (Manual Sync & Drive Export)."""
+    if SYNC_LOCK.locked():
+        await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
+        return
+
     logging.info(f"🔄 Manual sync requested by {update.effective_user.first_name}")
     status_msg = await update.message.reply_text("🔄 Syncing data from Sparky and Intervals...")
     await update.message.chat.send_action(action="typing")
@@ -93,14 +111,15 @@ async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     f = io.StringIO()
     try:
-        with redirect_stdout(f):
-            # 1. Update the local PostgreSQL database
-            await asyncio.to_thread(sync_data)
-            
-            # 2. Generate the CSVs and push to Google Drive
-            await asyncio.to_thread(export_daily_log)
-            await asyncio.to_thread(export_workouts)
-            await asyncio.to_thread(sync_to_drive)
+        async with SYNC_LOCK:
+            with redirect_stdout(f):
+                # 1. Update the local PostgreSQL database
+                await asyncio.to_thread(sync_data)
+                
+                # 2. Generate the CSVs and push to Google Drive
+                await asyncio.to_thread(export_daily_log)
+                await asyncio.to_thread(export_workouts)
+                await asyncio.to_thread(sync_to_drive)
         
         output = f.getvalue()
         # Truncate if too long for Telegram
@@ -115,6 +134,10 @@ async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def force_historic_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles the /historicsync command (One-off Historic Export)."""
+    if SYNC_LOCK.locked():
+        await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
+        return
+
     logging.info(f"🚀 Historic sync requested by {update.effective_user.first_name}")
     status_msg = await update.message.reply_text("🚀 Starting historic sync (metrics only)...")
     await update.message.chat.send_action(action="typing")
@@ -124,12 +147,13 @@ async def force_historic_sync(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     f = io.StringIO()
     try:
-        with redirect_stdout(f):
-            # 1. Update the local PostgreSQL database (full sync first)
-            await asyncio.to_thread(sync_data)
-            
-            # 2. Generate the historic CSV and push to Google Drive
-            await asyncio.to_thread(run_historic_sync)
+        async with SYNC_LOCK:
+            with redirect_stdout(f):
+                # 1. Update the local PostgreSQL database (full sync first)
+                await asyncio.to_thread(sync_data)
+                
+                # 2. Generate the historic CSV and push to Google Drive
+                await asyncio.to_thread(run_historic_sync)
         
         output = f.getvalue()
         if len(output) > 3500:

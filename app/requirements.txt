@@ -1,18 +1,18 @@
 # Database
 psycopg2-binary>=2.9.10
 # HTTP & APIs
-requests==2.31.0
+requests>=2.32.3
 # Telegram
 python-telegram-bot>=21.9
 # Configuration
-python-dotenv==1.0.0
-PyYAML==6.0.1
+python-dotenv>=1.0.1
+PyYAML>=6.0.2
 # Utilities
-pytz==2024.1
+pytz>=2024.2
 # Testing
-pytest==7.4.3
-pytest-cov==4.1.0
-pandas>=2.0.0
+pytest>=8.3.3
+pytest-cov>=5.0.0
+pandas>=2.2.3
 google-api-python-client>=2.0.0
 google-auth-httplib2
 google-auth-oauthlib
