@@ -1,3 +1,8 @@
+"""
+Telegram Bot Entry Point.
+Provides the primary user interface for the McPatty Performance Coach.
+Features: /status (full report), /today (snapshot), /sync (manual data pull), /journal (logging).
+"""
 import os
 import sys
 import logging
@@ -8,31 +13,36 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from telegram.constants import ParseMode
 
-# Ensure 'app' is in the path
+# --- PATH BOOTSTRAP ---
+# Ensure the application root is in sys.path so internal imports work correctly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-# Import report functions and database utility
 from app.decision_engine.llm import get_verbose_status, get_today_status 
 from app.sync.main import sync_data
 from app.sync.daily_export import export_daily_log, export_workouts, sync_to_drive
 from app.sync.historic_sync import run_historic_sync
 from app.db import get_cursor
 
-# Load environment variables
+# Load configuration
 load_dotenv('/opt/healthcoach/.env')
 API_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
-# Global lock to prevent concurrent sync operations
+# --- CONCURRENCY CONTROL ---
+# Global lock ensures that multiple users cannot trigger database syncs simultaneously,
+# which prevents resource exhaustion and potential SQLite/Postgres lock contention.
 SYNC_LOCK = asyncio.Lock()
 
-# Enable logging
+# --- LOGGING SETUP ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /start command."""
+    """
+    Handles the /start command.
+    Sends a welcome message and a quick-reference guide for all available bot commands.
+    """
     welcome_text = (
         "📊 *McPatty Performance Coach Active*\n\n"
         "Commands:\n"
@@ -45,7 +55,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, parse_mode='Markdown')
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /status command (Full Report)."""
+    """
+    Handles the /status command.
+    1. Checks if a sync is already running.
+    2. Triggers a data sync from all providers.
+    3. Generates and sends a verbose 30-day performance report.
+    """
     if SYNC_LOCK.locked():
         await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
         return
@@ -56,11 +71,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         async with SYNC_LOCK:
+            # Run blocking database operations in a thread to keep the bot responsive
             await asyncio.to_thread(sync_data)
             report = await asyncio.to_thread(get_verbose_status)
         
         await status_msg.delete()
         
+        # Telegram has a 4096 character limit per message; split the report if necessary
         if len(report) > 4000:
             for x in range(0, len(report), 4000):
                 await update.message.reply_text(report[x:x+4000], parse_mode='Markdown')
@@ -71,7 +88,10 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"❌ Error: {str(e)}")
 
 async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /today command (Quick Snapshot)."""
+    """
+    Handles the /today command.
+    Provides a quick snapshot of today's nutrition logs and training activities.
+    """
     if SYNC_LOCK.locked():
         await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
         return
@@ -82,13 +102,9 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         async with SYNC_LOCK:
-            # 1. Sync Data (Fast check)
             await asyncio.to_thread(sync_data)
-            
-            # 2. Get Today's Summary
             report = await asyncio.to_thread(get_today_status)
         
-        # 3. Send
         await status_msg.delete()
         await update.message.reply_text(report, parse_mode='Markdown')
 
@@ -97,7 +113,11 @@ async def today(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"❌ Error: {str(e)}")
 
 async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /sync command (Manual Sync & Drive Export)."""
+    """
+    Handles the /sync command.
+    Performs a full data pull from providers, generates CSV exports, and pushes to Google Drive.
+    Displays real-time logs to the user via Telegram.
+    """
     if SYNC_LOCK.locked():
         await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
         return
@@ -122,7 +142,6 @@ async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await asyncio.to_thread(sync_to_drive)
         
         output = f.getvalue()
-        # Truncate if too long for Telegram
         if len(output) > 3500:
             output = output[:3500] + "\n... (truncated)"
         
@@ -133,7 +152,10 @@ async def force_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"❌ **Sync Failed!**\n\nError: `{str(e)}` \n\nLog:\n```\n{output}\n```", parse_mode='Markdown')
 
 async def force_historic_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /historicsync command (One-off Historic Export)."""
+    """
+    Handles the /historicsync command.
+    A one-off tool to backfill 2 years of metrics data into the master CSV and sync to Drive.
+    """
     if SYNC_LOCK.locked():
         await update.message.reply_text("⚠️ A synchronization is already in progress. Please wait a moment.")
         return
@@ -149,7 +171,7 @@ async def force_historic_sync(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         async with SYNC_LOCK:
             with redirect_stdout(f):
-                # 1. Update the local PostgreSQL database (full sync first)
+                # 1. Update the local PostgreSQL database
                 await asyncio.to_thread(sync_data)
                 
                 # 2. Generate the historic CSV and push to Google Drive
@@ -166,7 +188,11 @@ async def force_historic_sync(update: Update, context: ContextTypes.DEFAULT_TYPE
         await status_msg.edit_text(f"❌ **Historic Sync Failed!**\n\nError: `{str(e)}` \n\nLog:\n```\n{output}\n```", parse_mode='Markdown')
 
 async def add_journal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Log a journal entry via Telegram."""
+    """
+    Handles the /journal command.
+    Appends a text entry to the 'journal_entries' table for the current date.
+    Usage: /journal Feeling great, hit a PR on the squat today.
+    """
     if not context.args:
         await update.message.reply_text("⚠️ Please provide your journal entry.\nUsage: `/journal Feeling strong today, managed the intervals well.`", parse_mode=ParseMode.MARKDOWN)
         return
@@ -194,10 +220,13 @@ if __name__ == "__main__":
     
     application = ApplicationBuilder().token(API_TOKEN).build()
     
+    # Register command handlers
     application.add_handler(CommandHandler('start', start))
     application.add_handler(CommandHandler('status', status))
     application.add_handler(CommandHandler('today', today)) 
     application.add_handler(CommandHandler('sync', force_sync))
     application.add_handler(CommandHandler('historicsync', force_historic_sync))      
     application.add_handler(CommandHandler('journal', add_journal))
+    
+    # Start the bot
     application.run_polling()

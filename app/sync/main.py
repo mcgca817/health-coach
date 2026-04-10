@@ -1,15 +1,14 @@
 """
-Main entry point for Data Sync.
-Pulls from SparkyFitness & Intervals.icu & Google Sheets -> Pushes to HealthCoach DB.
+Main Data Synchronization Engine.
+Orchestrates data retrieval from multiple providers (SparkyFitness, Intervals.icu, Google Sheets)
+and performs atomic updates to the central PostgreSQL database.
 """
 import sys
 import os
 from dotenv import load_dotenv
 
-# Force load the .env file
+# --- CONFIGURATION & PATH SETUP ---
 load_dotenv('/opt/healthcoach/.env')
-
-# Add the parent directory (app/) to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db import get_cursor, log_job_start, log_job_success, log_job_failure
@@ -18,8 +17,12 @@ from sync.intervals import fetch_wellness_data, fetch_activities_data
 from sync.sync_sheets import sync_and_update
 
 def setup_database(cur):
-    """Ensures all necessary tables exist before syncing."""
-    # 1. Activities Table
+    """
+    Bootstrap required helper tables and indexes.
+    Ensures the application can recover if the primary schema is present but 
+    supplementary tables are missing.
+    """
+    # Activities Table: Tracks individual workout sessions
     cur.execute("""
         CREATE TABLE IF NOT EXISTS activities (
             id TEXT PRIMARY KEY,
@@ -35,7 +38,7 @@ def setup_database(cur):
         CREATE INDEX IF NOT EXISTS idx_activities_date ON activities(date DESC);
     """)
 
-    # 2. Granular Nutrition Logs Table
+    # Granular Nutrition Logs: Detailed line-items from SparkyFitness
     cur.execute("""
         CREATE TABLE IF NOT EXISTS nutrition_logs (
             id SERIAL PRIMARY KEY,
@@ -52,11 +55,19 @@ def setup_database(cur):
     """)
 
 def sync_data():
+    """
+    Core Sync Loop.
+    1. Fetches data from all external APIs (Intervals & Sparky).
+    2. Opens a single transaction to the database.
+    3. Performs UPSERTs (Insert or Update on Conflict) for all records.
+    4. Triggers secondary sync for Google Sheets.
+    """
     run_id = log_job_start("daily_sync")
     print("--- Starting Data Sync ---")
     
     try:
-        # 1. Fetch Data
+        # --- 1. DATA ACQUISITION ---
+        # Fetch 30 days of summary data and 7 days of granular logs
         sparky_data = fetch_recent_data(days=30)
         food_log_data = fetch_food_logs(days=7) 
         wellness_data = fetch_wellness_data(days=30)
@@ -68,12 +79,11 @@ def sync_data():
         print(f"Intervals Wellness: {len(wellness_data)}")
         print(f"Intervals Activities: {len(activities_data)}")
 
-        # 2. Write to Database
+        # --- 2. DATABASE PERSISTENCE ---
         with get_cursor() as cur:
-            # A. Setup Schema
             setup_database(cur)
 
-            # B. Sync Biometrics (Sparky)
+            # B. Sync Biometrics (Weight/Steps from Sparky)
             for row in sparky_data['biometrics']:
                 cur.execute("""
                     INSERT INTO daily_biometrics (date, weight_kg, steps)
@@ -83,7 +93,7 @@ def sync_data():
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps)
                 """, (row['date'], row['weight_kg'], row['steps']))
 
-            # C. Sync Nutrition Totals (Sparky)
+            # C. Sync Nutrition Totals (Aggregated daily macros from Sparky)
             for row in sparky_data['nutrition']:
                 cur.execute("""
                     INSERT INTO nutrition_actuals (date, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g)
@@ -96,7 +106,7 @@ def sync_data():
                         fibre_actual_g = EXCLUDED.fibre_actual_g
                 """, (row['entry_date'], row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
 
-            # D. Sync Granular Food Logs (Sparky)
+            # D. Sync Granular Food Logs (Wipe and replace last 7 days to handle edits/deletions)
             cur.execute("DELETE FROM nutrition_logs WHERE date >= CURRENT_DATE - INTERVAL '7 days'")
             for row in food_log_data:
                 name = row['food_name']
@@ -108,9 +118,9 @@ def sync_data():
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (row['entry_date'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
 
-            # E. Sync Wellness (Intervals: Sleep, HRV, Weight, Steps)
+            # E. Sync Wellness (Sleep, HRV, Performance Metrics from Intervals.icu)
             for row in wellness_data:
-                # 1. Update Biometrics Table
+                # 1. Update Biometrics Table (Health metrics)
                 cur.execute("""
                     INSERT INTO daily_biometrics 
                     (date, resting_hr, hrv, sleep_hours, weight_kg, steps)
@@ -124,7 +134,7 @@ def sync_data():
                 """, (row['date'], row['resting_hr'], row['hrv'], 
                       row['sleep_hours'], row['weight_kg'], row['steps']))
 
-                # 2. Update Training Load Table (Performance Metrics)
+                # 2. Update Training Load Table (Performance/Fitness metrics)
                 cur.execute("""
                     INSERT INTO training_load (date, ctl, atl, tsb)
                     VALUES (%s, %s, %s, %s)
@@ -135,7 +145,7 @@ def sync_data():
                         updated_at = CURRENT_TIMESTAMP
                 """, (row['date'], row['ctl'], row['atl'], row['tsb']))
 
-            # F. Sync Activities (Intervals)
+            # F. Sync Activities (Individual workout files/stats)
             for act in activities_data:
                 cur.execute("""
                     INSERT INTO activities (id, date, name, type, distance_km, moving_time_min, load, average_watts)
@@ -147,7 +157,8 @@ def sync_data():
                 """, (act['id'], act['date'], act['name'], act['type'], 
                       act['distance_km'], act['moving_time_min'], act['load'], act['average_watts']))
 
-        # G. Sync Google Sheets (Added to fix Burn Data)
+        # --- 3. SECONDARY SYNC: GOOGLE SHEETS ---
+        # Sheets sync handles additional metrics like manual 'Burn' data
         print("--- Triggering Google Sheets Sync ---")
         try:
             sync_and_update()

@@ -1,15 +1,24 @@
+"""
+Intervals.icu API Integration.
+Fetches wellness (HRV, Sleep, Weight) and activity data from the Intervals.icu v1 API.
+"""
 import os
 import requests
 from datetime import datetime, timedelta
 
 def fetch_wellness_data(days=30):
+    """
+    Retrieves daily wellness metrics for the specified trailing window.
+    Metrics: CTL, ATL, Form, HR, HRV, Sleep, Kcal Burned, Weight, Steps.
+    """
     athlete_id = os.getenv('INTERVALS_ATHLETE_ID')
     api_key = os.getenv('INTERVALS_API_KEY')
     
     if not athlete_id or not api_key:
-        print("⚠️  Intervals.icu credentials missing.")
+        print("⚠️ Intervals.icu credentials missing.")
         return []
 
+    # API expects YYYY-MM-DD format
     end_date = datetime.now().strftime('%Y-%m-%d')
     start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     
@@ -21,7 +30,8 @@ def fetch_wellness_data(days=30):
             data = response.json()
             cleaned_data = []
             for day in data:
-                # PERFORMANCE METRICS
+                # Map API fields to our internal schema. 
+                # Note: 'form' in API is our 'tsb' (Training Stress Balance)
                 ctl = day.get('ctl') or 0
                 atl = day.get('atl') or 0
                 tsb = day.get('form') or (float(ctl) - float(atl))
@@ -29,8 +39,6 @@ def fetch_wellness_data(days=30):
                 kcal_burned = day.get('kcal') or day.get('calories')
                 sleep_secs = day.get('sleepSecs') or 0
                 sleep_hrs = round(sleep_secs / 3600, 2) if sleep_secs > 0 else None
-                
-                # Extract body fat
                 body_fat = day.get('bodyFat')
 
                 cleaned_data.append({
@@ -49,10 +57,14 @@ def fetch_wellness_data(days=30):
             return cleaned_data
         return []
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Intervals Wellness Error: {e}")
         return []
 
 def fetch_activities_data(days=30):
+    """
+    Retrieves individual workout sessions from Intervals.icu.
+    Used for the /today and /status reports.
+    """
     athlete_id = os.getenv('INTERVALS_ATHLETE_ID')
     api_key = os.getenv('INTERVALS_API_KEY')
     
@@ -85,5 +97,5 @@ def fetch_activities_data(days=30):
             return cleaned
         return []
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Intervals Activities Error: {e}")
         return []

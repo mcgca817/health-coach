@@ -1,23 +1,29 @@
+"""
+Report Generation Logic (LLM/Decision Engine).
+Responsible for transforming raw database records into athlete-friendly Markdown reports.
+"""
 import os
 from datetime import datetime, date, timedelta
 from app.db import get_cursor
 
-
-# In app/decision_engine/llm.py
-
 def get_verbose_status():
     """
-    Constructs the McPatty Performance Dashboard (30-Day History).
+    Constructs the Full 30-Day Performance Dashboard.
+    - Joins Biometrics, Nutrition, and Training Load data.
+    - Calculates a 7-day Exponential Moving Average (EMA) for weight.
+    - Includes recent training activities and journal entries.
     """
     today = date.today()
     thirty_days_ago = today - timedelta(days=30)
     seven_days_ago = today - timedelta(days=7)
     
-    # Capture exact time of report generation
+    # Timestamp for the header to show freshness
     now_str = datetime.now().strftime("%H:%M:%S")
 
     with get_cursor() as cur:
-        # 1. Fetch 30-Day Table
+        # 1. Fetch 30-Day Metrics Table
+        # We use LEFT JOINs to ensure we show every date in the biometrics table, 
+        # even if nutrition or load data is missing for that specific day.
         cur.execute("""
             SELECT 
                 b.date, b.weight_kg, b.body_fat_pct, b.sleep_hours, b.hrv, b.kcal_burned,
@@ -31,7 +37,7 @@ def get_verbose_status():
         """, (thirty_days_ago, today))
         stats = cur.fetchall()
 
-        # 2. Fetch 7-Day Training Activities
+        # 2. Fetch 7-Day Training Activities (detailed log)
         cur.execute("""
             SELECT date, name, type, distance_km, moving_time_min, load, average_watts
             FROM activities
@@ -49,32 +55,36 @@ def get_verbose_status():
         """, (seven_days_ago, today))
         journals = cur.fetchall()
 
-    # Calculate 7-Day Weighted Average (Exponential Moving Average) for Weight
+    # --- Analytics: Weight EMA ---
+    # Exponential Moving Average smooths out daily water weight fluctuations
     ema = None
     for r in stats:
         w = r['weight_kg']
         if w is not None:
             w = float(w)
             if ema is None:
-                ema = w
+                ema = w # Initialize with first found weight
             else:
-                ema = (w * 0.25) + (ema * 0.75)
+                ema = (w * 0.25) + (ema * 0.75) # 25% current, 75% history
         r['weight_ema'] = ema
 
-    # Reverse stats so the most recent day is at the top of the table
+    # Flip the list so the most recent day appears at the top of the Telegram message
     stats.reverse()
 
-    # PASSING 4 ARGUMENTS HERE
     return format_report(stats, training, journals, now_str)
 
-# ACCEPTING 4 ARGUMENTS HERE
 def format_report(stats, training, journals, now_str):
+    """
+    Main Markdown formatter for the /status command.
+    Constructs a visual table and summary sections.
+    """
     if not stats: return "No data found."
     
+    # Calculate average protein intake over the last 30 days (ignoring 0g days)
     valid_protein_days = [r['protein_actual_g'] for r in stats if (r['protein_actual_g'] or 0) > 0]
     avg_protein = sum(valid_protein_days) / len(valid_protein_days) if valid_protein_days else 0.0
 
-    curr = stats[0]
+    curr = stats[0] # Most recent day for header summary
     report = [
         f"### 🛡️ MCPATTY PERFORMANCE STATUS (Updated: {now_str})",
         f"**Fitness (CTL):** {curr['ctl'] or 0} | **Fatigue (ATL):** {curr['atl'] or 0}",
@@ -89,6 +99,7 @@ def format_report(stats, training, journals, now_str):
     for r in stats:
         dt_str = r['date'].strftime('%m-%d') if hasattr(r['date'], 'strftime') else str(r['date'])[-5:]
         
+        # Formatting helpers to handle None/Null values gracefully
         w = f"{r['weight_kg']:.1f}" if r['weight_kg'] else "--"
         w_avg = f"{r['weight_ema']:.1f}" if r.get('weight_ema') else "--"
         bf = f"{r['body_fat_pct']:.1f}" if r.get('body_fat_pct') is not None else "--"
@@ -104,7 +115,6 @@ def format_report(stats, training, journals, now_str):
         
         report.append(f"| {dt_str} | {w} | {w_avg} | {bf} | {slp} | {hrv} | {eat} | {burn} | {p} | {c} | {f_macro} | {fib} |")
 
-    # ADDING THE JOURNAL OUTPUT HERE
     report.append("\n**📓 7-DAY JOURNAL**")
     if not journals:
         report.append("_No recent journal entries._")
@@ -125,15 +135,16 @@ def format_report(stats, training, journals, now_str):
 
 def get_today_status():
     """
-    Returns a snapshot for TODAY only.
-    Uses DISTINCT to remove duplicate workouts from multiple sources.
+    Constructs a visual snapshot for the CURRENT date.
+    - Displays detailed granular food logs.
+    - Lists specific training activities for today.
     """
     today = date.today()
     thirty_days_ago = today - timedelta(days=30)
     now_str = datetime.now().strftime("%H:%M:%S")
 
     with get_cursor() as cur:
-        # 1. Fetch 30-Day Stats (Needed ONLY for the Header averages/metrics)
+        # 1. Fetch Summary Header Data (Performance Metrics)
         cur.execute("""
             SELECT b.date, t.ctl, t.atl, t.tsb, n.protein_actual_g
             FROM daily_biometrics b
@@ -144,7 +155,7 @@ def get_today_status():
         """, (thirty_days_ago, today))
         stats = cur.fetchall()
 
-        # 2. Fetch TODAY'S Food
+        # 2. Fetch TODAY'S Specific Food Entries (from SparkyFitness)
         cur.execute("""
             SELECT entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g
             FROM nutrition_logs
@@ -153,7 +164,7 @@ def get_today_status():
         """, (today,))
         todays_food = cur.fetchall()
 
-        # 3. Fetch TODAY'S Training
+        # 3. Fetch TODAY'S Specific Training Activities (from Intervals.icu)
         cur.execute("""
             SELECT DISTINCT name, distance_km, load, average_watts
             FROM activities
@@ -164,12 +175,11 @@ def get_today_status():
 
     if not stats: return "No data available."
 
-    # --- Header Math ---
+    # --- Header Summary Calculation ---
     curr = stats[0]
     valid_protein_days = [r['protein_actual_g'] for r in stats if (r['protein_actual_g'] or 0) > 0]
     avg_protein = sum(valid_protein_days) / len(valid_protein_days) if valid_protein_days else 0.0
     
-    # --- Build Report ---
     report = [
         f"### 🛡️ MCPATTY TODAY ({now_str})",
         f"**Fitness (CTL):** {curr['ctl'] or 0} | **Fatigue (ATL):** {curr['atl'] or 0}",
@@ -197,7 +207,7 @@ def get_today_status():
             
             report.append(f"- {f['entry_text']}: {kcal}kcal (P:{p:.0f} C:{c:.0f} F:{ft:.0f} Fib:{fib:.0f})")
         
-        # Daily Totals Footer
+        # Summary footer for the nutrition section
         report.append(f"\n**TOTAL:** {total_kcal} kcal | **{total_prot:.0f}g Protein**")
 
     report.append("\n**🚵 TODAY'S TRAINING**")

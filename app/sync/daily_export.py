@@ -1,3 +1,9 @@
+"""
+Daily CSV Export Engine.
+Processes database records into flattened CSV files for external analysis.
+- Handles workout conversion from .FIT to .CSV using Garmin's FitCSVTool.
+- Synchronizes local files to Google Drive via rclone.
+"""
 import sys
 import os
 import requests
@@ -5,14 +11,14 @@ import subprocess
 import pandas as pd
 from datetime import date, timedelta
 from dotenv import load_dotenv
-load_dotenv('/opt/healthcoach/.env')
 
-# --- PATH BOOTSTRAP ---
+# Path setup for app-level imports
+load_dotenv('/opt/healthcoach/.env')
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from app.db import get_cursor
 
-# --- CONFIG ---
+# --- CONFIGURATION ---
 EXPORT_DIR = "/opt/healthcoach/exports"
 FIT_CSV_TOOL = "/opt/healthcoach/bin/FitCSVTool.jar"
 REMOTE_PATH = os.getenv('GDRIVE_REMOTE_PATH', 'gdrive:Operation Outlive')
@@ -20,16 +26,17 @@ MASTER_FILE_NAME = "daily_metrics_master.csv"
 
 def export_daily_log(days_back=30):
     """
-    Synchronizes the last N days of metrics to the master CSV checkpoint.
-    This ensures any missed days are backfilled and current data is accurate.
+    Exports a unified metrics table to a master CSV file.
+    - Uses FULL OUTER JOIN to capture all dates from all source tables.
+    - Implements deduplication to ensure the file can grow without duplicates.
     """
     start_date = date.today() - timedelta(days=days_back)
     master_path = os.path.join(EXPORT_DIR, MASTER_FILE_NAME)
     
     print(f"--- Exporting Metrics (since {start_date}) ---")
-    print(f"Target path: {master_path}")
     
     with get_cursor() as cur:
+        # Unified query joining Biometrics, Nutrition, and Training Load
         cur.execute("""
             SELECT 
                 COALESCE(b.date, n.date, t.date) as date,
@@ -44,30 +51,24 @@ def export_daily_log(days_back=30):
             ORDER BY date ASC
         """, (start_date,))
         rows = cur.fetchall()
-
-        
-        print(f"Found {len(rows)} rows in database for this period.")
         
         if not rows:
             print(f"⚠️ No metrics found in database since {start_date}")
             return
 
         new_data = pd.DataFrame([dict(row) for row in rows])
-        # Ensure date column is string for comparison
         new_data['date'] = new_data['date'].astype(str)
-        
-        print(f"Sample data from DB: \n{new_data[['date', 'weight_kg']].tail(3)}")
         
         if os.path.exists(master_path):
             try:
                 master_df = pd.read_csv(master_path)
                 master_df['date'] = master_df['date'].astype(str)
                 
-                # Filter out the dates we are about to re-insert/update
+                # Deduplication: Remove dates we are about to re-insert
                 dates_to_update = new_data['date'].unique()
                 master_df = master_df[~master_df['date'].isin(dates_to_update)]
                 
-                # Append new data and sort
+                # Merge, sort, and save
                 updated_df = pd.concat([master_df, new_data], ignore_index=True)
                 updated_df = updated_df.sort_values('date')
                 
@@ -81,7 +82,10 @@ def export_daily_log(days_back=30):
             print(f"✅ Created new master checkpoint: {MASTER_FILE_NAME}")
 
 def export_workouts(days_back=7):
-    """Downloads and converts FIT files for the last N days if not already present."""
+    """
+    Downloads individual workout files (.FIT) from Intervals.icu and converts them to .CSV.
+    Only processes workouts that haven't been exported yet.
+    """
     start_date = date.today() - timedelta(days=days_back)
     api_key = os.getenv('INTERVALS_API_KEY')
     
@@ -98,11 +102,11 @@ def export_workouts(days_back=7):
     for act in activities:
         csv_path = os.path.join(EXPORT_DIR, f"workout_{act['id']}.csv")
         
-        # Skip if already exported
+        # Avoid redundant work
         if os.path.exists(csv_path):
             continue
             
-        print(f"🔄 Exporting workout: {act['name']} ({act['date']})")
+        print(f"🔄 Processing workout: {act['name']} ({act['date']})")
         url = f"https://intervals.icu/api/v1/activity/{act['id']}/file"
         r = requests.get(url, auth=('API_KEY', api_key))
         
@@ -113,7 +117,7 @@ def export_workouts(days_back=7):
                 f.write(r.content)
             
             try:
-                # Convert FIT to CSV
+                # Convert binary FIT to readable CSV
                 if os.path.exists(FIT_CSV_TOOL):
                     subprocess.run(["java", "-jar", FIT_CSV_TOOL, "-b", fit_path, csv_path], check=True)
                     print(f"   ✅ Converted to CSV.")
@@ -122,20 +126,24 @@ def export_workouts(days_back=7):
             except Exception as e:
                 print(f"   ❌ Conversion failed for {act['id']}: {e}")
             finally:
+                # Cleanup binary fit file to save space
                 if os.path.exists(fit_path): 
                     os.remove(fit_path)
         else:
             print(f"   ⚠️ Failed to download FIT file for {act['id']} (Status: {r.status_code})")
 
 def sync_to_drive():
-    """Syncs the local directory to Google Drive."""
+    """
+    Uses rclone to mirror the local exports directory to a Google Drive folder.
+    - REMOTE_PATH is defined in group_vars (e.g., 'gdrive:Operation Outlive').
+    """
     print("🔄 Syncing to Google Drive...")
     if not REMOTE_PATH:
         print("⚠️ GDRIVE_REMOTE_PATH not set. Skipping drive sync.")
         return
         
     try:
-        # Capture stderr to see the actual rclone error message
+        # rclone copy is non-destructive (adds/updates files but doesn't delete)
         result = subprocess.run(
             ["rclone", "copy", EXPORT_DIR, REMOTE_PATH], 
             capture_output=True, 

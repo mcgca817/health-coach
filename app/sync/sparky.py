@@ -1,3 +1,8 @@
+"""
+SparkyFitness Database Integration.
+Connects to the external SparkyFitness PostgreSQL instance to retrieve 
+biometrics (Weight/Steps) and detailed nutrition logs.
+"""
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -6,6 +11,11 @@ from dotenv import load_dotenv
 load_dotenv('/opt/healthcoach/.env')
 
 def get_sparky_connection():
+    """
+    Establish a connection to the SparkyFitness external DB.
+    Uses app.user_id session variable to bypass RLS (Row Level Security) 
+    and fetch data for the configured athlete only.
+    """
     conn = psycopg2.connect(
         host=os.getenv('SPARKY_HOST'),
         database=os.getenv('SPARKY_DB'),
@@ -14,6 +24,7 @@ def get_sparky_connection():
     )
     
     # --- RLS BYPASS ---
+    # Set the session user ID so Sparky's security policies allow our queries
     user_id = os.getenv('SPARKY_USER_ID')
     if user_id:
         with conn.cursor() as cur:
@@ -22,16 +33,17 @@ def get_sparky_connection():
     return conn
 
 def fetch_recent_data(days=30):
-    """Fetches daily aggregated totals (Biometrics & Nutrition)."""
+    """
+    Retrieves aggregated daily summary data (Weight, Steps, and Macro Totals).
+    """
     conn = get_sparky_connection()
     data = {'biometrics': [], 'nutrition': []}
-    
     merged_bio = {}
 
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             
-            # 1. Weight & Steps
+            # 1. Fetch Weight & Steps from the check-in table
             cur.execute("""
                 SELECT entry_date, weight, steps
                 FROM check_in_measurements 
@@ -47,8 +59,8 @@ def fetch_recent_data(days=30):
                 if row['weight']: merged_bio[d_str]['weight_kg'] = float(row['weight'])
                 if row['steps']: merged_bio[d_str]['steps'] = int(row['steps'])
 
-            # 2. Nutrition Totals (Calculated from Quantity)
-            # Fix: (quantity / serving_size) * calories
+            # 2. Fetch Aggregated Nutrition Totals
+            # Macros are calculated by multiplying quantity eaten by the serving-size ratio.
             cur.execute("""
                 SELECT 
                     entry_date, 
@@ -72,11 +84,13 @@ def fetch_recent_data(days=30):
     return data
 
 def fetch_food_logs(days=7):
-    """Fetches granular food entries with calculated macros."""
+    """
+    Retrieves individual food entry details for the last N days.
+    Used for the /today granular breakdown.
+    """
     conn = get_sparky_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # Fix: Calculate actuals based on quantity eaten
             cur.execute("""
                 SELECT 
                     entry_date, 
