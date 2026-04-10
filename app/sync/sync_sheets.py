@@ -16,11 +16,10 @@ load_dotenv('/opt/healthcoach/.env')
 # --- CONFIGURATION ---
 BASE_DIR = Path("/opt/healthcoach")
 CREDS_FILE = BASE_DIR / "config" / "google" / "service_account.json"
-# Healthfit sheet IDs - check both existing and new sheets
-HEALTH_METRICS_IDS = [
-    "1SCsxip1B9zm8fV-QybWCdceyj-H1K4yzTH0spdi4Ekw",  # Existing sheet
-    "1sQAKSu-hN9Du_a3QyG3lb2LpiluWvtP042E3pXxYzVs"   # New sheet
-]
+
+# Read sheet IDs from environment variable (comma-separated string)
+env_sheet_ids = os.getenv('GOOGLE_SHEET_IDS', "")
+HEALTH_METRICS_IDS = [s.strip() for s in env_sheet_ids.split(",") if s.strip()]
 
 def clean_kcal(val):
     """Strips ' kcal', commas, and units to return a clean float."""
