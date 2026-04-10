@@ -7,6 +7,7 @@ import os
 import logging
 import json
 from datetime import date
+from dotenv import load_dotenv
 from garminconnect import (
     Garmin,
     GarminConnectConnectionError,
@@ -16,6 +17,9 @@ from garminconnect import (
 
 # Token file location
 SESSION_FILE = "/opt/healthcoach/logs/garmin_session.json"
+
+# Load environment variables
+load_dotenv('/opt/healthcoach/.env')
 
 def fetch_garmin_burn(target_date=None):
     """
