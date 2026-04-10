@@ -1,0 +1,15 @@
+# Role to install and configure Tailscale
+- name: Install Tailscale
+  become: yes
+  shell: "curl -fsSL https://tailscale.com/install.sh | sh"
+  args:
+    creates: /usr/bin/tailscale
+  tags: [tailscale, install]
+
+- name: Authenticate Tailscale
+  become: yes
+  shell: "tailscale up --auth-key={{ tailscale_auth_key }}"
+  register: tailscale_up
+  changed_when: "'Success' in tailscale_up.stdout or 'Logged in' in tailscale_up.stdout"
+  ignore_errors: yes  # Tailscale might already be up
+  tags: [tailscale, auth]

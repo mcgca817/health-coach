@@ -4,5 +4,6 @@
   gather_facts: yes
   roles:
     - common
+    - { role: tailscale, tags: [tailscale] }
     - docker
     - healthcoach
