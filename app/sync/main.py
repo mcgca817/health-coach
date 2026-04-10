@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db import get_cursor, log_job_start, log_job_success, log_job_failure
 from sync.sparky import fetch_recent_data, fetch_food_logs
 from sync.intervals import fetch_wellness_data, fetch_activities_data
+from sync.garmin import fetch_garmin_burn
 from sync.sync_sheets import sync_and_update
 
 def setup_database(cur):
@@ -123,16 +124,17 @@ def sync_data():
                 # 1. Update Biometrics Table (Health metrics)
                 cur.execute("""
                     INSERT INTO daily_biometrics 
-                    (date, resting_hr, hrv, sleep_hours, weight_kg, steps)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    (date, resting_hr, hrv, sleep_hours, weight_kg, steps, kcal_burned)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (date) DO UPDATE SET
                         resting_hr = COALESCE(EXCLUDED.resting_hr, daily_biometrics.resting_hr),
                         hrv = COALESCE(EXCLUDED.hrv, daily_biometrics.hrv),
                         sleep_hours = COALESCE(EXCLUDED.sleep_hours, daily_biometrics.sleep_hours),
                         weight_kg = COALESCE(EXCLUDED.weight_kg, daily_biometrics.weight_kg),
-                        steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps)
+                        steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps),
+                        kcal_burned = COALESCE(EXCLUDED.kcal_burned, daily_biometrics.kcal_burned)
                 """, (row['date'], row['resting_hr'], row['hrv'], 
-                      row['sleep_hours'], row['weight_kg'], row['steps']))
+                      row['sleep_hours'], row['weight_kg'], row['steps'], row['kcal_burned']))
 
                 # 2. Update Training Load Table (Performance/Fitness metrics)
                 cur.execute("""
@@ -164,6 +166,21 @@ def sync_data():
             sync_and_update()
         except Exception as sheet_err:
             print(f"⚠️ Sheets Sync Warning: {sheet_err}")
+
+        # --- 4. DIRECT GARMIN SYNC (Real-time Calorie Burn) ---
+        print("--- Triggering Direct Garmin Sync ---")
+        try:
+            garmin_burn = fetch_garmin_burn()
+            if garmin_burn:
+                with get_cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO daily_biometrics (date, kcal_burned)
+                        VALUES (CURRENT_DATE, %s)
+                        ON CONFLICT (date) DO UPDATE SET
+                            kcal_burned = EXCLUDED.kcal_burned
+                    """, (garmin_burn,))
+        except Exception as garmin_err:
+            print(f"⚠️ Garmin Sync Warning: {garmin_err}")
 
         log_job_success(run_id, records_processed=len(wellness_data))
         print(f"--- Sync Complete: {len(wellness_data)} wellness, {len(activities_data)} activities, {len(food_log_data)} food entries ---")
