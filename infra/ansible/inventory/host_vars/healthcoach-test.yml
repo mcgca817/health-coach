@@ -1,1 +1,0 @@
-ansible_host: "{{ lookup('env', 'TEST_SERVER_IP') }}"
