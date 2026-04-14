@@ -64,10 +64,11 @@ The system is configured for fully automated, gated deployments via GitHub Actio
 
 ### Required GitHub Secrets
 To enable this, you must configure the following secrets in your GitHub repository:
-*   `SSH_PRIVATE_KEY`: Your SSH private key (must be authorized on the servers).
-*   `VAULT_PASSWORD`: The password for your Ansible Vault files.
-*   `TEST_SERVER_IP`: The IP address of your test server.
-*   `PROD_SERVER_IP`: The IP address of your production server.
+*   `SSH_PRIVATE_KEY`: Your SSH private key (from `~/.ssh/id_rsa`).
+*   `VAULT_PASSWORD`: The password for your Ansible Vault (from `~/.vault_pass.txt`).
+*   `TAILSCALE_AUTH_KEY`: A Tailscale Auth Key (Reusable/Ephemeral) generated from the [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys).
+*   `TEST_SERVER_IP`: The **Tailscale IP** (100.x.x.x) of your test server.
+*   `PROD_SERVER_IP`: The **Tailscale IP** (100.x.x.x) of your production server.
 
 ## 🔄 Service & Container Auto-Updates (Watchtower)
 

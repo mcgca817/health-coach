@@ -12,6 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
       - name: Set up Ansible
         run: |
           sudo apt-get update
@@ -43,6 +48,11 @@ jobs:
     if: success()
     steps:
       - uses: actions/checkout@v4
+
+      - name: Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
       - name: Set up Ansible
         run: |
