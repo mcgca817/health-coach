@@ -32,8 +32,8 @@ logs/
 backups/
 # Secrets
 **/*.env
-**/group_vars/*.yml
-**/host_vars/*.yml
+!**/group_vars/*.yml
+!**/host_vars/*.yml
 *.key
 *.pem
 infra/ansible/roles/healthcoach/templates/.env.j2
