@@ -37,6 +37,21 @@ ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "docker exec -t healthcoach-bot
 
 echo ""
 echo "✅ SUCCESS: All tests passed on Test Server."
+echo "----------------------------------------------------------"
+
+echo ""
+echo "🛡️  PHASE 2.5: Running Vulnerability Scan (Trivy)..."
+echo "----------------------------------------------------------"
+# Scan the live container for OS and Python library vulnerabilities
+ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy image --severity HIGH,CRITICAL healthcoach-bot:latest" || {
+    echo ""
+    echo "🚨 VULNERABILITY ALERT: High/Critical security issues found!"
+    echo "🔍 ACTION REQUIRED: Patch dependencies before proceeding to production."
+    exit 1
+}
+
+echo ""
+echo "✅ SECURITY: No High/Critical vulnerabilities detected."
 echo "=========================================================="
 
 echo ""

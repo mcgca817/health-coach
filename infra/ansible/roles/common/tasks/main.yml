@@ -29,6 +29,13 @@
   args:
     creates: /etc/apt/apt.conf.d/20auto-upgrades
 
+- name: Install Trivy for vulnerability scanning
+  become: yes
+  shell: |
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+  args:
+    creates: /usr/local/bin/trivy
+
 - name: Create application directory
   become: yes
   file:
