@@ -151,6 +151,11 @@
     state: present
     update_cache: yes
 
+- name: Clean up unused Docker resources
+  become: yes
+  shell: docker system prune -f --volumes
+  changed_when: false
+
 - name: Start Docker containers
   shell: |
     cd /opt/healthcoach
