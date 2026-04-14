@@ -16,6 +16,7 @@ jobs:
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          args: --tun=userspace-networking
 
       - name: Set up Ansible
         run: |
@@ -36,10 +37,13 @@ jobs:
           ansible-playbook -i inventory/hosts.ini playbooks/deploy.yml --limit test --vault-password-file ~/.vault_pass.txt
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          ALL_PROXY: socks5://localhost:1055/
 
       - name: Run Tests on Test Server
         run: |
           ssh -o StrictHostKeyChecking=no cameron@${{ secrets.TEST_SERVER_IP }} "docker exec -t healthcoach-bot /app/entrypoint.sh test"
+        env:
+          ALL_PROXY: socks5://localhost:1055/
 
   deploy-prod:
     name: Deploy (PRODUCTION Server)
@@ -53,6 +57,7 @@ jobs:
         uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          args: --tun=userspace-networking
 
       - name: Set up Ansible
         run: |
@@ -73,3 +78,4 @@ jobs:
           ansible-playbook -i inventory/hosts.ini playbooks/deploy.yml --limit prod --vault-password-file ~/.vault_pass.txt
         env:
           ANSIBLE_HOST_KEY_CHECKING: "False"
+          ALL_PROXY: socks5://localhost:1055/
