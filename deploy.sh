@@ -45,8 +45,12 @@ echo "----------------------------------------------------------"
 # Clean trivy cache to ensure space and fresh database
 ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy clean --scan-cache"
 
+# Ensure a temporary directory exists on the main disk (not /tmp RAM disk)
+ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "mkdir -p /opt/healthcoach/tmp"
+
 # Scan the live container for OS and Python library vulnerabilities
-if ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy image --severity HIGH,CRITICAL --no-progress healthcoach-healthcoach-bot"; then
+# Setting TMPDIR to use the main disk instead of the limited /tmp mount
+if ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "export TMPDIR=/opt/healthcoach/tmp && trivy image --severity HIGH,CRITICAL --no-progress healthcoach-healthcoach-bot"; then
     echo ""
     echo "✅ SECURITY: No High/Critical vulnerabilities detected."
     echo "=========================================================="
