@@ -43,7 +43,8 @@ echo ""
 echo "🛡️  PHASE 2.5: Running Vulnerability Scan (Trivy)..."
 echo "----------------------------------------------------------"
 # Scan the live container for OS and Python library vulnerabilities
-if ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy image --severity HIGH,CRITICAL healthcoach-bot:latest"; then
+# Note: The image name is usually [folder_name]-[service_name]
+if ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy image --severity HIGH,CRITICAL health-coach-healthcoach-bot"; then
     echo ""
     echo "✅ SECURITY: No High/Critical vulnerabilities detected."
     echo "=========================================================="
