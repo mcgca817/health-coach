@@ -17,8 +17,8 @@ jobs:
           curl -fsSL https://tailscale.com/install.sh | sh
           sudo systemctl stop tailscaled || true
           sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --state=mem: &
-          sleep 5
-          sudo tailscale up --auth-key=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner --accept-dns=false
+          sleep 10
+          sudo tailscale up --auth-key=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner --accept-dns=false --reset
 
       - name: Set up Ansible
         run: |
@@ -61,8 +61,8 @@ jobs:
           curl -fsSL https://tailscale.com/install.sh | sh
           sudo systemctl stop tailscaled || true
           sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --state=mem: &
-          sleep 5
-          sudo tailscale up --auth-key=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner --accept-dns=false
+          sleep 10
+          sudo tailscale up --auth-key=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner --accept-dns=false --reset
 
       - name: Set up Ansible
         run: |
