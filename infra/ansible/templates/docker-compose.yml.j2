@@ -125,7 +125,7 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --cleanup --schedule "0 4 * * *" --label-enable
+    command: --cleanup --interval 1800 --label-enable
     environment:
       WATCHTOWER_NOTIFICATIONS: shoutrrr
       WATCHTOWER_NOTIFICATION_URL: telegram://{{ telegram_alerts_token }}@telegram/?channels={{ telegram_alerts_chat_id }}
