@@ -13,3 +13,8 @@
   changed_when: "'Success' in tailscale_up.stdout or 'Logged in' in tailscale_up.stdout"
   ignore_errors: yes  # Tailscale might already be up
   tags: [tailscale, auth]
+
+- name: Enable Tailscale auto-update
+  become: yes
+  shell: "tailscale set --auto-update"
+  tags: [tailscale, autoupdate]

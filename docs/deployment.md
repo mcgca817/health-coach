@@ -53,26 +53,12 @@ This command:
 ### CORS & Allowed Origins
 The SparkyFitness application requires that the `SPARKY_FITNESS_FRONTEND_URL` environment variable match the Tailscale URL exactly (including `https://` and the `.ts.net` suffix). This ensures that **Better Auth** and other session-based security features allow cross-origin requests from the browser.
 
-## 🤖 Continuous Deployment (GitHub Actions)
-
-The system is configured for fully automated, gated deployments via GitHub Actions.
-
-**Workflow on Push to `main`**:
-1.  **Test Deployment**: Automatically deploys the latest code to the Test Server.
-2.  **Automated Testing**: Runs the full suite of integration tests on the Test Server.
-3.  **Production Deployment**: Only if tests pass, the pipeline automatically deploys to the Production Server.
-
-### Required GitHub Secrets
-To enable this, you must configure the following secrets in your GitHub repository:
-*   `SSH_PRIVATE_KEY`: Your SSH private key (from `~/.ssh/id_rsa`).
-*   `VAULT_PASSWORD`: The password for your Ansible Vault (from `~/.vault_pass.txt`).
-*   `TAILSCALE_AUTH_KEY`: A Tailscale Auth Key (Reusable/Ephemeral) generated from the [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys).
-*   `TEST_SERVER_IP`: The **Tailscale IP** (100.x.x.x) of your test server.
-*   `PROD_SERVER_IP`: The **Tailscale IP** (100.x.x.x) of your production server.
-
 ## 🔄 Service & Container Auto-Updates (Watchtower)
 
 All external images (SparkyFitness, Grafana, Postgres) are monitored by **Watchtower**.
 *   **Check Interval**: 30 minutes.
 *   **Automatic Cleanup**: Old images are automatically removed to save disk space.
 *   **Notifications**: Successful updates or failures are sent to your Telegram Alerts bot.
+
+---
+*Maintained by the McPatty Performance Engine.*

@@ -1,0 +1,4 @@
+# Global variables for all environments
+ansible_user: cameron
+postgres_user: healthcoach
+postgres_db: healthcoach

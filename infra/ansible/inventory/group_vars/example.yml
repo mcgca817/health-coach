@@ -1,0 +1,18 @@
+# Example configuration - copy this to test.yml and prod.yml
+# DO NOT commit test.yml or prod.yml to git
+env_name: example
+push_workouts: false
+
+# API Keys (replace with real values)
+telegram_bot_token: "YOUR_BOT_TOKEN"
+telegram_alerts_token: "YOUR_ALERTS_TOKEN"
+claude_api_key: "YOUR_CLAUDE_KEY"
+
+# Database
+postgres_password: "YOUR_DB_PASSWORD"
+
+# SparkyFitness
+spark_user_id: "YOUR_USER_ID"
+sparky_fitness_api_encryption_key: "YOUR_ENCRYPTION_KEY"
+sparky_jwt_secret: "YOUR_JWT_SECRET"
+sparky_fitness_frontend_url: "https://your-node.ts.net"
