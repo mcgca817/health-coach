@@ -1,5 +1,7 @@
 version: "3.9"
+
 services:
+  # --- HEALTH COACH CORE SERVICES ---
   postgres:
     image: postgres:16
     container_name: healthcoach-postgres
@@ -18,6 +20,105 @@ services:
       timeout: 5s
       retries: 5
 
+  healthcoach-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: healthcoach-bot
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - sparkyfitness-db
+    volumes:
+      - /opt/healthcoach/.env:/opt/healthcoach/.env:ro
+      - /opt/healthcoach/logs:/app/logs
+      - /opt/healthcoach/config:/app/config
+      - /root/.config/rclone:/root/.config/rclone
+    command: bot
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  healthcoach-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: healthcoach-sync
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - sparkyfitness-db
+    volumes:
+      - /opt/healthcoach/.env:/opt/healthcoach/.env:ro
+      - /opt/healthcoach/logs:/app/logs
+      - /opt/healthcoach/config:/app/config
+      - /opt/healthcoach/exports:/app/exports
+      - /root/.config/rclone:/root/.config/rclone
+    command: cron
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # --- SPARKY FITNESS SERVICES ---
+  sparkyfitness-db:
+    image: postgres:15-alpine
+    container_name: sparkyfitness-db
+    restart: always
+    environment:
+      POSTGRES_DB: sparkydb
+      POSTGRES_USER: {{ sparky_fitness_db_user }}
+      POSTGRES_PASSWORD: {{ sparky_fitness_db_password }}
+    volumes:
+      - /opt/healthcoach/sparky_pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ sparky_fitness_db_user }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sparkyfitness-garmin:
+    image: codewithcj/sparkyfitness_garmin:latest
+    container_name: sparkyfitness-garmin
+    restart: always
+    environment:
+      - GARMIN_SERVICE_PORT=8000
+      - SPARKY_FITNESS_API_ENCRYPTION_KEY={{ sparky_fitness_api_encryption_key }}
+      - GARMIN_SERVICE_IS_CN=false
+    networks:
+      - default
+
+  sparkyfitness-server:
+    image: codewithcj/sparkyfitness_server:latest
+    container_name: sparkyfitness-server
+    restart: always
+    env_file: /opt/healthcoach/.env
+    depends_on:
+      sparkyfitness-db:
+        condition: service_healthy
+    environment:
+      SPARKY_FITNESS_DB_HOST: sparkyfitness-db
+      SPARKY_FITNESS_DB_NAME: sparkydb
+      SPARKY_FITNESS_DB_PORT: 5432
+      GARMIN_MICROSERVICE_URL: http://sparkyfitness-garmin:8000
+    volumes:
+      - /opt/healthcoach/sparky_backup:/app/SparkyFitnessServer/backup
+      - /opt/healthcoach/sparky_uploads:/app/SparkyFitnessServer/uploads
+    networks:
+      - default
+
+  sparkyfitness-frontend:
+    image: codewithcj/sparkyfitness:latest
+    container_name: sparkyfitness-frontend
+    ports:
+      - "3004:80"
+    restart: always
+    env_file: /opt/healthcoach/.env
+    depends_on:
+      - sparkyfitness-server
+    networks:
+      - default
+
+  # --- INFRASTRUCTURE ---
   watchtower:
     image: nickfedor/watchtower
     container_name: watchtower

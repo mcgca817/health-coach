@@ -8,8 +8,11 @@ from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from dotenv import load_dotenv
 
-# Load server-side environment variables
-load_dotenv('/opt/healthcoach/.env')
+# Load environment variables
+if os.path.exists('/opt/healthcoach/.env'):
+    load_dotenv('/opt/healthcoach/.env')
+else:
+    load_dotenv()
 
 def get_db_connection():
     """

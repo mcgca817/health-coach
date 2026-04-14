@@ -8,7 +8,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
-load_dotenv('/opt/healthcoach/.env')
+# Load environment variables
+if os.path.exists('/opt/healthcoach/.env'):
+    load_dotenv('/opt/healthcoach/.env')
+else:
+    load_dotenv()
 
 def get_sparky_connection():
     """

@@ -31,3 +31,24 @@ To deploy changes, run the following from your Mac:
 *   **Inventory Variables**: Located in `infra/ansible/inventory/group_vars/`.
     *   `test.yml` and `prod.yml` contain environment-specific settings.
 *   **Best Practice**: Use **Ansible Vault** to encrypt these files. If using a vault, ensure your password is in `~/.vault_pass.txt` for the `deploy.sh` script to pick it up automatically.
+
+## 🛡️ Network & Security (Tailscale)
+
+The system uses **Tailscale** for both secure administrative access (SSH) and exposing internal web services.
+
+### Tailscale Serve
+The SparkyFitness frontend (running in Docker on port 3004) is exposed securely via the following Ansible task:
+```yaml
+- name: Configure Tailscale Serve for SparkyFitness
+  shell: |
+    tailscale serve reset
+    tailscale serve --bg 3004
+```
+
+This command:
+1.  Resets any existing serve configuration to ensure a clean state.
+2.  Maps the node's Tailscale HTTPS endpoint (port 443) to local port 3004 in the background.
+3.  Automatically handles the **Let's Encrypt** SSL certificate for the `.ts.net` domain.
+
+### CORS & Allowed Origins
+The SparkyFitness application requires that the `SPARKY_FITNESS_FRONTEND_URL` environment variable match the Tailscale URL exactly (including `https://` and the `.ts.net` suffix). This ensures that **Better Auth** and other session-based security features allow cross-origin requests from the browser.

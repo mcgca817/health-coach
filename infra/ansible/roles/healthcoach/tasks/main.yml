@@ -49,12 +49,12 @@
     group: "{{ ansible_user }}"
     mode: '0644'
 
-- name: Ensure Grafana directories exist
+- name: Ensure Grafana and Sparky directories exist
   become: yes
   file:
     path: "{{ item }}"
     state: directory
-    owner: "472"
+    owner: "472" # Grafana user
     group: "472"
     mode: '0755'
   loop:
@@ -63,9 +63,19 @@
     - /opt/healthcoach/grafana/provisioning
     - /opt/healthcoach/grafana/provisioning/datasources
     - /opt/healthcoach/grafana/provisioning/dashboards
-    - /opt/healthcoach/grafana/provisioning/plugins
-    - /opt/healthcoach/grafana/provisioning/notifiers
-    - /opt/healthcoach/grafana/provisioning/alerting
+
+- name: Ensure SparkyFitness directories exist
+  become: yes
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  loop:
+    - /opt/healthcoach/sparky_pgdata
+    - /opt/healthcoach/sparky_backup
+    - /opt/healthcoach/sparky_uploads
 
 - name: Deploy Grafana datasource provisioning
   become: yes
@@ -94,17 +104,26 @@
     group: "472"
     mode: '0644'
 
-- name: Install Python dependencies
-  pip:
-    requirements: /opt/healthcoach/app/requirements.txt
-    virtualenv: /opt/healthcoach/venv
-    virtualenv_command: python3 -m venv
+- name: Copy Dockerfile and entrypoint
+  copy:
+    src: "{{ playbook_dir }}/../../../{{ item }}"
+    dest: "/opt/healthcoach/{{ item }}"
+  loop:
+    - Dockerfile
+    - entrypoint.sh
 
 - name: Start Docker containers
   shell: |
     cd /opt/healthcoach
-    docker compose up -d
+    docker compose up -d --build
   become: yes
+
+- name: Configure Tailscale Serve for SparkyFitness
+  become: yes
+  shell: |
+    tailscale serve reset
+    tailscale serve --bg 3004
+  changed_when: false
 
 - name: Wait for PostgreSQL to be ready
   wait_for:
@@ -118,47 +137,13 @@
     docker exec healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }} -c "SELECT 1 FROM daily_biometrics LIMIT 1;" || echo "not_initialized"
   register: db_check
   changed_when: false
+  become: yes
 
 - name: Initialize database schema
   shell: |
     cat /opt/healthcoach/sql/schema.sql | docker exec -i healthcoach-postgres psql -U {{ postgres_user }} -d {{ postgres_db }}
   when: "'not_initialized' in db_check.stdout"
-
-- name: Copy systemd service files
   become: yes
-  template:
-    src: "{{ item }}"
-    dest: "/etc/systemd/system/{{ item | basename | replace('.j2', '') }}"
-    mode: '0644'
-  loop:
-    - healthcoach-bot.service.j2
-    - health-sync.service.j2
-    - health-sync.timer.j2
-    - healthcoach-export.service.j2
-    - healthcoach-export.timer.j2
-  notify: Reload systemd
-
-- name: Enable and start Telegram Bot
-  become: yes
-  systemd:
-    name: healthcoach-bot
-    state: started
-    enabled: yes
-    daemon_reload: yes
-
-- name: Enable and start Health Sync Timer
-  become: yes
-  systemd:
-    name: health-sync.timer
-    state: started
-    enabled: yes
-
-- name: Enable and start Health Coach Export Timer
-  become: yes
-  systemd:
-    name: healthcoach-export.timer
-    state: started
-    enabled: yes
 
 - name: Ensure Google config directory exists
   ansible.builtin.file:
@@ -174,7 +159,7 @@
     dest: "/opt/healthcoach/config/google/service_account.json"
     owner: cameron
     group: cameron
-    mode: '0600'  # Strict permissions: read/write only for the owner
+    mode: '0600'
 
 - name: Ensure log directory exists
   file:
@@ -183,28 +168,6 @@
     mode: '0755'
     owner: cameron
 
-- name: Install Java for Garmin FitCSVTool
-  become: yes
-  apt:
-    name: openjdk-17-jre-headless
-    state: present
-
-- name: Create bin directory
-  file:
-    path: /opt/healthcoach/bin
-    state: directory
-    owner: cameron
-    group: cameron
-    mode: '0755'
-
-- name: Download FitCSVTool.jar
-  get_url:
-    url: https://github.com/garmin/fit-sdk-tools/raw/main/FitCSVTool/FitCSVTool.jar
-    dest: /opt/healthcoach/bin/FitCSVTool.jar
-    mode: '0755'
-    owner: cameron
-    group: cameron
-
 - name: Create export directory
   file:
     path: /opt/healthcoach/exports
@@ -212,14 +175,6 @@
     owner: cameron
     group: cameron
     mode: '0755'
-
-- name: Install rclone and Java
-  become: yes
-  apt:
-    name: 
-      - rclone
-      - openjdk-17-jre-headless
-    state: present
 
 - name: Create rclone config directory
   file:
@@ -232,3 +187,4 @@
     src: rclone.conf.j2
     dest: "{{ ansible_facts['env']['HOME'] }}/.config/rclone/rclone.conf"
     mode: '0600'
+

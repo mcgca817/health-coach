@@ -1,0 +1,51 @@
+---
+# Migration playbook to move SparkyFitness data from external server to new local container
+- name: Migrate SparkyFitness Database
+  hosts: all
+  gather_facts: no
+  vars_prompt:
+    - name: legacy_sparky_host
+      prompt: "Legacy SparkyFitness IP/Host"
+      default: "192.168.0.19"
+      private: no
+    - name: legacy_sparky_user
+      prompt: "Legacy Sparky DB User"
+      default: "sparky"
+      private: no
+    - name: legacy_sparky_pass
+      prompt: "Legacy Sparky DB Password"
+      private: yes
+    - name: legacy_sparky_db
+      prompt: "Legacy Sparky DB Name"
+      default: "sparkyfitness_db"
+      private: no
+
+  tasks:
+    - name: Ensure backup directory exists
+      become: yes
+      file:
+        path: /opt/healthcoach/sparky_backup
+        state: directory
+        owner: "{{ ansible_user }}"
+
+    - name: Create target database if it doesn't exist
+      shell: |
+        docker exec sparkyfitness-db psql -U {{ sparky_fitness_db_user }} -d sparkydb -tc "SELECT 1 FROM pg_database WHERE datname = 'sparkydb'" | grep -q 1 || \
+        docker exec sparkyfitness-db psql -U {{ sparky_fitness_db_user }} -d sparkydb -c "CREATE DATABASE sparkydb"
+      become: yes
+      ignore_errors: yes
+
+    - name: Perform pg_dump from legacy server (inside container)
+      shell: |
+        docker exec -e PGPASSWORD="{{ legacy_sparky_pass }}" sparkyfitness-db pg_dump -h {{ legacy_sparky_host }} -U {{ legacy_sparky_user }} -d {{ legacy_sparky_db }} -F c -b -v -f /var/lib/postgresql/data/legacy_sparky_dump.sql.gz
+      become: yes
+
+    - name: Restore dump into new local Docker container
+      shell: |
+        docker exec sparkyfitness-db pg_restore -U {{ sparky_fitness_db_user }} -d sparkydb -v --clean --no-owner --no-privileges /var/lib/postgresql/data/legacy_sparky_dump.sql.gz
+      become: yes
+
+    - name: Cleanup dump file
+      shell: |
+        docker exec sparkyfitness-db rm /var/lib/postgresql/data/legacy_sparky_dump.sql.gz
+      become: yes

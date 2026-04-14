@@ -12,15 +12,20 @@ import pandas as pd
 from datetime import date, timedelta
 from dotenv import load_dotenv
 
-# Path setup for app-level imports
-load_dotenv('/opt/healthcoach/.env')
+# Load environment variables
+if os.path.exists('/opt/healthcoach/.env'):
+    load_dotenv('/opt/healthcoach/.env')
+else:
+    load_dotenv()
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from app.db import get_cursor
 
 # --- CONFIGURATION ---
-EXPORT_DIR = "/opt/healthcoach/exports"
-FIT_CSV_TOOL = "/opt/healthcoach/bin/FitCSVTool.jar"
+# Use /app prefix for containerized environment, fallback to /opt/healthcoach for legacy
+BASE_PATH = "/app" if os.path.exists("/app/app") else "/opt/healthcoach"
+EXPORT_DIR = os.path.join(BASE_PATH, "exports")
+FIT_CSV_TOOL = os.path.join(BASE_PATH, "bin", "FitCSVTool.jar")
 REMOTE_PATH = os.getenv('GDRIVE_REMOTE_PATH', 'gdrive:Operation Outlive')
 MASTER_FILE_NAME = "daily_metrics_master.csv"
 

@@ -33,6 +33,15 @@ This script will:
 2.  Run the **Full Test Suite** on the test environment.
 3.  Only proceed to **Production** if all tests pass.
 
+## 🌐 Tailscale Access
+
+The system uses **Tailscale Serve** to securely expose internal services over HTTPS to your private tailnet.
+
+### Access URLs:
+*   **SparkyFitness (Test):** [https://healthcoach-test.tail996c5.ts.net](https://healthcoach-test.tail996c5.ts.net)
+*   **SparkyFitness (Prod):** [https://healthcoach-prod.tail996c5.ts.net](https://healthcoach-prod.tail996c5.ts.net)
+*   **Grafana Dashboards:** Internal port 3000 (accessible via Tailscale IP).
+
 ## 🤖 Bot Commands
 
 The Telegram bot (`@YourBotName`) supports the following:

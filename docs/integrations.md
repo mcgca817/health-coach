@@ -9,10 +9,13 @@ McPatty Performance Coach integrates with several third-party platforms to build
     *   **Wellness**: CTL, ATL, Form, Sleep Hours, HRV (SDNN), Resting HR.
     *   **Activities**: Individual .FIT files, Training Load (TSS equivalent), Distance, Watts.
 
-## 🥗 SparkyFitness (Direct DB Access)
+## 🥗 SparkyFitness (Direct DB Access & Frontend)
 *   **Purpose**: Source of truth for nutrition and body weight.
 *   **Authentication**: Standard PostgreSQL connection via `SPARKY_HOST`, `SPARKY_USER`, etc.
-*   **Security**: Uses an `app.user_id` session variable to bypass Row Level Security (RLS) for the specific athlete.
+*   **Frontend**: Served over **Tailscale HTTPS** on port 443 (proxied to internal port 3004).
+*   **Security**: 
+    *   Uses an `app.user_id` session variable to bypass Row Level Security (RLS) for the specific athlete.
+    *   `BETTER_AUTH_ALLOWED_ORIGINS` is configured to match the Tailscale `.ts.net` domain for secure login.
 *   **Data Points**:
     *   **Nutrition**: Total calories, Protein, Carbs, Fat, Fibre.
     *   **Granular Logs**: Specific food names and brands consumed.

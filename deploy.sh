@@ -27,8 +27,8 @@ echo "📡 Connecting to: cameron@$TEST_IP"
 echo "📂 Working directory: /opt/healthcoach"
 echo ""
 
-# SSH into the test server and run pytest with -s (show prints) and -v (verbose)
-ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "cd /opt/healthcoach && venv/bin/python3 -m pytest tests/ -v -s" || { 
+# SSH into the test server and run pytest inside the healthcoach-bot container
+ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "docker exec -t healthcoach-bot /app/entrypoint.sh test" || { 
     echo ""
     echo "❌ CRITICAL: Tests failed on the test server!"
     echo "🚨 DEPLOYMENT ABORTED: Production environment remains untouched."
