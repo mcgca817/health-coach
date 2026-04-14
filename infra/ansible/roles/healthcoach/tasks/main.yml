@@ -104,6 +104,24 @@
     group: "472"
     mode: '0644'
 
+- name: Deploy Service Monitoring dashboard JSON
+  become: yes
+  copy:
+    src: "grafana/dashboards/service_monitoring.json"
+    dest: /opt/healthcoach/grafana/provisioning/dashboards/service_monitoring.json
+    owner: "472"
+    group: "472"
+    mode: '0644'
+
+- name: Deploy Grafana alerting provisioning
+  become: yes
+  template:
+    src: "grafana/provisioning/alerting.yml.j2"
+    dest: /opt/healthcoach/grafana/provisioning/alerting.yml
+    owner: "472"
+    group: "472"
+    mode: '0644'
+
 - name: Copy Dockerfile and entrypoint
   copy:
     src: "{{ playbook_dir }}/../../../{{ item }}"

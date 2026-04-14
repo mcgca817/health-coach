@@ -1,0 +1,15 @@
+apiVersion: 1
+
+contactPoints:
+  - name: Telegram
+    receivers:
+      - name: Telegram Bot
+        type: telegram
+        settings:
+          bot_token: "{{ telegram_alerts_token }}"
+          chat_id: "{{ telegram_alerts_chat_id }}"
+
+policies:
+  - orgId: 1
+    receiver: Telegram
+    group_by: ['alertname', 'grafana_folder', 'service']
