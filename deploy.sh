@@ -43,16 +43,16 @@ echo ""
 echo "🛡️  PHASE 2.5: Running Vulnerability Scan (Trivy)..."
 echo "----------------------------------------------------------"
 # Scan the live container for OS and Python library vulnerabilities
-ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy image --severity HIGH,CRITICAL healthcoach-bot:latest" || {
+if ssh -o StrictHostKeyChecking=no cameron@$TEST_IP "trivy image --severity HIGH,CRITICAL healthcoach-bot:latest"; then
+    echo ""
+    echo "✅ SECURITY: No High/Critical vulnerabilities detected."
+    echo "=========================================================="
+else
     echo ""
     echo "🚨 VULNERABILITY ALERT: High/Critical security issues found!"
     echo "🔍 ACTION REQUIRED: Patch dependencies before proceeding to production."
     exit 1
-}
-
-echo ""
-echo "✅ SECURITY: No High/Critical vulnerabilities detected."
-echo "=========================================================="
+fi
 
 echo ""
 echo "🌍 PHASE 3: Deploying verified configuration to PRODUCTION..."

@@ -29,12 +29,26 @@
   args:
     creates: /etc/apt/apt.conf.d/20auto-upgrades
 
-- name: Install Trivy for vulnerability scanning
+- name: Add Trivy GPG key
   become: yes
   shell: |
-    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
   args:
-    creates: /usr/local/bin/trivy
+    creates: /usr/share/keyrings/trivy.gpg
+
+- name: Add Trivy repository
+  become: yes
+  copy:
+    dest: /etc/apt/sources.list.d/trivy.list
+    content: "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb noble main"
+    mode: '0644'
+
+- name: Install Trivy
+  become: yes
+  apt:
+    name: trivy
+    state: present
+    update_cache: yes
 
 - name: Create application directory
   become: yes
