@@ -15,7 +15,8 @@ jobs:
       - name: Install Tailscale
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
+          sudo systemctl stop tailscaled || true
+          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --state=mem: &
           sleep 5
           sudo tailscale up --auth-key=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner --accept-dns=false
 
@@ -58,7 +59,8 @@ jobs:
       - name: Install Tailscale
         run: |
           curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
+          sudo systemctl stop tailscaled || true
+          sudo tailscaled --tun=userspace-networking --socks5-server=localhost:1055 --state=mem: &
           sleep 5
           sudo tailscale up --auth-key=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner --accept-dns=false
 
