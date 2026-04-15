@@ -33,10 +33,12 @@ services:
       - /opt/healthcoach/.env:/opt/healthcoach/.env:ro
       - /opt/healthcoach/logs:/app/logs
       - /opt/healthcoach/config:/app/config
-      - /root/.config/rclone:/root/.config/rclone
+      - /opt/healthcoach/scripts:/app/scripts
+      - /home/cameron/.config/rclone:/root/.config/rclone
     command: bot
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+    # Updated via deploy.sh
+    # labels:
+    #   - "com.centurylinklabs.watchtower.enable=true"
 
   healthcoach-sync:
     build:
@@ -51,11 +53,13 @@ services:
       - /opt/healthcoach/.env:/opt/healthcoach/.env:ro
       - /opt/healthcoach/logs:/app/logs
       - /opt/healthcoach/config:/app/config
+      - /opt/healthcoach/scripts:/app/scripts
       - /opt/healthcoach/exports:/app/exports
-      - /root/.config/rclone:/root/.config/rclone
+      - /home/cameron/.config/rclone:/root/.config/rclone
     command: cron
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+    # Updated via deploy.sh
+    # labels:
+    #   - "com.centurylinklabs.watchtower.enable=true"
 
   # --- SPARKY FITNESS SERVICES ---
   sparkyfitness-db:
@@ -155,6 +159,6 @@ services:
     container_name: watchtower-canary
     command: sleep infinity
     restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+    # labels:
+    #   - "com.centurylinklabs.watchtower.enable=true"
 {% endif %}

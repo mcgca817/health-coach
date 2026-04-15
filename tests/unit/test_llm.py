@@ -1,18 +1,45 @@
 import pytest
-from datetime import date
+from datetime import date, timedelta, datetime
 import sys
 import os
+from unittest.mock import patch, MagicMock
 
 # Ensure app is in path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
-from app.decision_engine.llm import format_report
+from app.decision_engine.llm import format_report, get_verbose_status, get_today_status
 
 def test_format_report_empty():
     print("\n🔍 Testing: Report generation with ZERO data rows...")
     report = format_report([], [], [], "12:00:00")
     assert report == "No data found."
     print("✅ Verified: Empty report returns correct placeholder string.")
+
+@patch('app.decision_engine.llm.get_cursor')
+def test_get_verbose_status_smoke(mock_get_cursor):
+    """Smoke test to ensure the logic runs without NameErrors."""
+    print("\n🔍 Smoke Test: get_verbose_status...")
+    mock_cur = MagicMock()
+    # Mock three queries (Stats, Training, Journal)
+    mock_cur.fetchall.side_effect = [[], [], []]
+    mock_get_cursor.return_value.__enter__.return_value = mock_cur
+    
+    report = get_verbose_status()
+    assert "No data found." in report
+    print("✅ Verified: get_verbose_status handles empty DB without error.")
+
+@patch('app.decision_engine.llm.get_cursor')
+def test_get_today_status_smoke(mock_get_cursor):
+    """Smoke test to ensure the logic runs without NameErrors."""
+    print("\n🔍 Smoke Test: get_today_status...")
+    mock_cur = MagicMock()
+    # Mock three queries (Stats, Food, Training)
+    mock_cur.fetchall.side_effect = [[], [], []]
+    mock_get_cursor.return_value.__enter__.return_value = mock_cur
+    
+    report = get_today_status()
+    assert "No data available." in report
+    print("✅ Verified: get_today_status handles empty DB without error.")
 
 def test_format_report_with_data():
     print("\n🔍 Testing: Full report generation with complex data set...")

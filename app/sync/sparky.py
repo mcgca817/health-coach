@@ -5,8 +5,13 @@ biometrics (Weight/Steps) and detailed nutrition logs.
 """
 import os
 import psycopg2
+import pytz
+from datetime import datetime, timedelta
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+
+# --- TIMEZONE CONFIGURATION ---
+LOCAL_TZ = pytz.timezone('Pacific/Auckland')
 
 # Load environment variables
 if os.path.exists('/opt/healthcoach/.env'):
@@ -44,6 +49,10 @@ def fetch_recent_data(days=30):
     data = {'biometrics': [], 'nutrition': []}
     merged_bio = {}
 
+    # Use tomorrow's local date for the upper bound to catch any TZ overlap 
+    # where Sparky entries might be logged with a timestamp that UTC sees as future
+    local_tomorrow = (datetime.now(LOCAL_TZ) + timedelta(days=1)).date()
+
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             
@@ -51,9 +60,9 @@ def fetch_recent_data(days=30):
             cur.execute("""
                 SELECT entry_date, weight, steps
                 FROM check_in_measurements 
-                WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
+                WHERE entry_date >= %s::DATE - %s::INTERVAL AND entry_date <= %s::DATE
                 ORDER BY entry_date ASC
-            """, (f"{days} days",))
+            """, (local_tomorrow, f"{days} days", local_tomorrow))
             
             for row in cur.fetchall():
                 d_str = str(row['entry_date'])
@@ -74,10 +83,10 @@ def fetch_recent_data(days=30):
                     SUM((quantity / NULLIF(serving_size, 0)) * fat) as fat,
                     SUM((quantity / NULLIF(serving_size, 0)) * dietary_fiber) as fibre_actual_g
                 FROM food_entries
-                WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
+                WHERE entry_date >= %s::DATE - %s::INTERVAL AND entry_date <= %s::DATE
                 GROUP BY entry_date::date
                 ORDER BY entry_date::date ASC
-            """, (f"{days} days",))
+            """, (local_tomorrow, f"{days} days", local_tomorrow))
             
             data['nutrition'] = cur.fetchall()
             
@@ -87,17 +96,51 @@ def fetch_recent_data(days=30):
     data['biometrics'] = list(merged_bio.values())
     return data
 
+def fetch_calories_burned(days=30):
+    """
+    Calculates estimated calories burned using Sparky's exercise logs and step data.
+    Formula: SUM(calories_burned) + (steps * 0.0233)
+    """
+    conn = get_sparky_connection()
+    user_id = os.getenv('SPARKY_USER_ID')
+    local_tomorrow = (datetime.now(LOCAL_TZ) + timedelta(days=1)).date()
+    
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # Join from measurements to ensure we get a row for every day with steps
+            # even if no formal exercise was logged.
+            cur.execute("""
+                SELECT 
+                    m.entry_date as date,
+                    COALESCE(SUM(e.calories_burned), 0) + COALESCE(m.steps * 0.0233, 0) + 2080 AS kcal_burned
+                FROM check_in_measurements m
+                LEFT JOIN exercise_entries e 
+                    ON m.entry_date = e.entry_date 
+                    AND m.user_id = e.user_id
+                WHERE m.user_id = %s
+                  AND m.entry_date >= %s::DATE - %s::INTERVAL 
+                  AND m.entry_date <= %s::DATE
+                GROUP BY m.entry_date, m.steps
+                ORDER BY m.entry_date DESC
+            """, (user_id, local_tomorrow, f"{days} days", local_tomorrow))
+            
+            return cur.fetchall()
+    finally:
+        conn.close()
+
 def fetch_food_logs(days=7):
     """
     Retrieves individual food entry details for the last N days.
     Used for the /today granular breakdown.
     """
     conn = get_sparky_connection()
+    local_tomorrow = (datetime.now(LOCAL_TZ) + timedelta(days=1)).date()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT 
                     entry_date, 
+                    created_at,
                     food_name,
                     brand_name, 
                     (quantity / NULLIF(serving_size, 0)) * calories as calories, 
@@ -106,9 +149,9 @@ def fetch_food_logs(days=7):
                     (quantity / NULLIF(serving_size, 0)) * fat as fat,
                     (quantity / NULLIF(serving_size, 0)) * dietary_fiber as fibre_actual_g
                 FROM food_entries
-                WHERE entry_date >= CURRENT_DATE - %s::INTERVAL
+                WHERE entry_date >= %s::DATE - %s::INTERVAL AND entry_date <= %s::DATE
                 ORDER BY entry_date DESC, created_at ASC
-            """, (f"{days} days",))
+            """, (local_tomorrow, f"{days} days", local_tomorrow))
             return cur.fetchall()
     finally:
         conn.close()

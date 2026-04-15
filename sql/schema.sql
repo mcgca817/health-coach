@@ -149,6 +149,21 @@ CREATE TABLE IF NOT EXISTS nutrition_actuals (
 );
 CREATE INDEX IF NOT EXISTS idx_nutrition_actuals_date ON nutrition_actuals (date DESC);
 
+-- Granular Nutrition Logs (from SparkyFitness)
+CREATE TABLE IF NOT EXISTS nutrition_logs (
+    id SERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    logged_at TIMESTAMP,
+    entry_text TEXT,
+    kcal_actual INTEGER,
+    protein_actual_g NUMERIC(5,1),
+    carbs_actual_g NUMERIC(5,1),
+    fat_actual_g NUMERIC(5,1),
+    fibre_actual_g NUMERIC(5,1),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_nut_logs_date ON nutrition_logs(date DESC);
+
 -- Journal entries
 CREATE TABLE IF NOT EXISTS journal_entries (
     id SERIAL PRIMARY KEY,

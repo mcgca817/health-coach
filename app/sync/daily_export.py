@@ -35,6 +35,9 @@ def export_daily_log(days_back=30):
     - Uses FULL OUTER JOIN to capture all dates from all source tables.
     - Implements deduplication to ensure the file can grow without duplicates.
     """
+    # Ensure directory exists before defining path
+    os.makedirs(EXPORT_DIR, exist_ok=True)
+    
     start_date = date.today() - timedelta(days=days_back)
     master_path = os.path.join(EXPORT_DIR, MASTER_FILE_NAME)
     
@@ -91,6 +94,7 @@ def export_workouts(days_back=7):
     Downloads individual workout files (.FIT) from Intervals.icu and converts them to .CSV.
     Only processes workouts that haven't been exported yet.
     """
+    os.makedirs(EXPORT_DIR, exist_ok=True)
     start_date = date.today() - timedelta(days=days_back)
     api_key = os.getenv('INTERVALS_API_KEY')
     

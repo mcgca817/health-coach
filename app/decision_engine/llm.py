@@ -3,8 +3,12 @@ Report Generation Logic (LLM/Decision Engine).
 Responsible for transforming raw database records into athlete-friendly Markdown reports.
 """
 import os
+import pytz
 from datetime import datetime, date, timedelta
 from app.db import get_cursor
+
+# --- TIMEZONE CONFIGURATION ---
+LOCAL_TZ = pytz.timezone('Pacific/Auckland')
 
 def get_verbose_status():
     """
@@ -13,12 +17,13 @@ def get_verbose_status():
     - Calculates a 7-day Exponential Moving Average (EMA) for weight.
     - Includes recent training activities and journal entries.
     """
-    today = date.today()
-    thirty_days_ago = today - timedelta(days=30)
-    seven_days_ago = today - timedelta(days=7)
+    now_local = datetime.now(LOCAL_TZ)
+    local_today = now_local.date()
+    thirty_days_ago = local_today - timedelta(days=30)
+    seven_days_ago = local_today - timedelta(days=7)
     
     # Timestamp for the header to show freshness
-    now_str = datetime.now().strftime("%H:%M:%S")
+    now_str = now_local.strftime("%H:%M:%S")
 
     with get_cursor() as cur:
         # 1. Fetch 30-Day Metrics Table
@@ -34,7 +39,7 @@ def get_verbose_status():
             LEFT JOIN training_load t ON b.date = t.date
             WHERE b.date >= %s AND b.date <= %s
             ORDER BY b.date ASC;
-        """, (thirty_days_ago, today))
+        """, (thirty_days_ago, local_today))
         stats = cur.fetchall()
 
         # 2. Fetch 7-Day Training Activities (detailed log)
@@ -43,7 +48,7 @@ def get_verbose_status():
             FROM activities
             WHERE date >= %s AND date <= %s
             ORDER BY date DESC;
-        """, (seven_days_ago, today))
+        """, (seven_days_ago, local_today))
         training = cur.fetchall()
 
         # 3. Fetch 7-Day Journal Entries
@@ -52,7 +57,7 @@ def get_verbose_status():
             FROM journal_entries
             WHERE date >= %s AND date <= %s
             ORDER BY date DESC;
-        """, (seven_days_ago, today))
+        """, (seven_days_ago, local_today))
         journals = cur.fetchall()
 
     # --- Analytics: Weight EMA ---
@@ -139,9 +144,10 @@ def get_today_status():
     - Displays detailed granular food logs.
     - Lists specific training activities for today.
     """
-    today = date.today()
+    now_local = datetime.now(LOCAL_TZ)
+    today = now_local.date()
     thirty_days_ago = today - timedelta(days=30)
-    now_str = datetime.now().strftime("%H:%M:%S")
+    now_str = now_local.strftime("%H:%M:%S")
 
     with get_cursor() as cur:
         # 1. Fetch Summary Header Data (Performance Metrics)
@@ -157,10 +163,10 @@ def get_today_status():
 
         # 2. Fetch TODAY'S Specific Food Entries (from SparkyFitness)
         cur.execute("""
-            SELECT entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g
+            SELECT entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g, logged_at
             FROM nutrition_logs
             WHERE date = %s
-            ORDER BY kcal_actual DESC;
+            ORDER BY logged_at ASC NULLS LAST;
         """, (today,))
         todays_food = cur.fetchall()
 

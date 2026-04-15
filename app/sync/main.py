@@ -12,7 +12,7 @@ load_dotenv('/opt/healthcoach/.env')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db import get_cursor, log_job_start, log_job_success, log_job_failure
-from sync.sparky import fetch_recent_data, fetch_food_logs
+from sync.sparky import fetch_recent_data, fetch_food_logs, fetch_calories_burned
 from sync.intervals import fetch_wellness_data, fetch_activities_data
 from sync.sync_sheets import sync_and_update
 
@@ -43,6 +43,7 @@ def setup_database(cur):
         CREATE TABLE IF NOT EXISTS nutrition_logs (
             id SERIAL PRIMARY KEY,
             date DATE NOT NULL,
+            logged_at TIMESTAMP,
             entry_text TEXT,
             kcal_actual INTEGER,
             protein_actual_g NUMERIC(5,1),
@@ -51,6 +52,13 @@ def setup_database(cur):
             fibre_actual_g NUMERIC(5,1),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        -- Ensure logged_at exists if the table was created before this feature
+        DO $$ 
+        BEGIN 
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='nutrition_logs' AND column_name='logged_at') THEN
+                ALTER TABLE nutrition_logs ADD COLUMN logged_at TIMESTAMP;
+            END IF;
+        END $$;
         CREATE INDEX IF NOT EXISTS idx_nut_logs_date ON nutrition_logs(date DESC);
     """)
 
@@ -72,16 +80,27 @@ def sync_data():
         food_log_data = fetch_food_logs(days=7) 
         wellness_data = fetch_wellness_data(days=30)
         activities_data = fetch_activities_data(days=30)
+        sparky_burn_data = fetch_calories_burned(days=30)
 
         print(f"--- Fetched Data Counts ---")
         print(f"Sparky Biometrics: {len(sparky_data.get('biometrics', []))}")
         print(f"Sparky Nutrition: {len(sparky_data.get('nutrition', []))}")
+        print(f"Sparky Burn (Est): {len(sparky_burn_data)}")
         print(f"Intervals Wellness: {len(wellness_data)}")
         print(f"Intervals Activities: {len(activities_data)}")
 
         # --- 2. DATABASE PERSISTENCE ---
         with get_cursor() as cur:
             setup_database(cur)
+
+            # A. Sync Sparky Burn Estimates (PRIMARY SOURCE for kcal_burned)
+            for row in sparky_burn_data:
+                cur.execute("""
+                    INSERT INTO daily_biometrics (date, kcal_burned)
+                    VALUES (%s, %s)
+                    ON CONFLICT (date) DO UPDATE SET
+                        kcal_burned = EXCLUDED.kcal_burned
+                """, (row['date'], int(row['kcal_burned'])))
 
             # B. Sync Biometrics (Weight/Steps from Sparky)
             for row in sparky_data['biometrics']:
@@ -114,9 +133,9 @@ def sync_data():
                 entry_text = f"{name} ({brand})" if brand else name
                 
                 cur.execute("""
-                    INSERT INTO nutrition_logs (date, entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (row['entry_date'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
+                    INSERT INTO nutrition_logs (date, logged_at, entry_text, kcal_actual, protein_actual_g, carbs_actual_g, fat_actual_g, fibre_actual_g)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (row['entry_date'], row['created_at'], entry_text, row['calories'], row['protein'], row['carbs'], row['fat'], row.get('fibre_actual_g', 0)))
 
             # E. Sync Wellness (Sleep, HRV, Performance Metrics from Intervals.icu)
             for row in wellness_data:
@@ -133,7 +152,7 @@ def sync_data():
                         weight_kg = COALESCE(EXCLUDED.weight_kg, daily_biometrics.weight_kg),
                         steps = COALESCE(EXCLUDED.steps, daily_biometrics.steps),
                         kcal_burned = CASE 
-                            WHEN EXCLUDED.kcal_burned > 0 THEN EXCLUDED.kcal_burned 
+                            WHEN daily_biometrics.kcal_burned IS NULL OR daily_biometrics.kcal_burned = 0 THEN EXCLUDED.kcal_burned 
                             ELSE daily_biometrics.kcal_burned 
                         END
                 """, (row['date'], row['resting_hr'], row['hrv'], 

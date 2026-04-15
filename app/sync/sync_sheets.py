@@ -19,7 +19,8 @@ from app.db import get_cursor
 load_dotenv('/opt/healthcoach/.env')
 
 # --- CONFIGURATION ---
-BASE_DIR = Path("/opt/healthcoach")
+# Use /app prefix for containerized environment, fallback to /opt/healthcoach for legacy
+BASE_DIR = Path("/app") if os.path.exists("/app/app") else Path("/opt/healthcoach")
 CREDS_FILE = BASE_DIR / "config" / "google" / "service_account.json"
 
 # Read sheet IDs from environment variable (comma-separated string in .env)
@@ -103,22 +104,7 @@ def sync_and_update():
                 sh = gc.open_by_key(sheet_id)
                 print(f"✅ Opened Spreadsheet: {sh.title}")
                 
-                # 1. Fetch Energy Data
-                df_daily = fetch_sheet_data(sh, "Daily Metrics")
-                if not df_daily.empty and 'date' in df_daily.columns:
-                    for _, row in df_daily.iterrows():
-                        d = parse_date(row.get('date'))
-                        if not d: continue
-                        
-                        active = clean_kcal(row.get('active energy'))
-                        resting = clean_kcal(row.get('resting energy'))
-                        total_burn = int(active + resting) if (active > 0 or resting > 0) else None
-                        
-                        if d not in merged_data: merged_data[d] = {}
-                        if 'kcal_burned' not in merged_data[d] or merged_data[d]['kcal_burned'] is None:
-                            merged_data[d]['kcal_burned'] = total_burn
-
-                # 2. Fetch Body Fat Data
+                # 1. Fetch Body Fat Data (from 'Weight' tab)
                 df_weight = fetch_sheet_data(sh, "Weight")
                 if not df_weight.empty and 'date' in df_weight.columns:
                     for _, row in df_weight.iterrows():

@@ -4,7 +4,11 @@ Fetches wellness (HRV, Sleep, Weight) and activity data from the Intervals.icu v
 """
 import os
 import requests
+import pytz
 from datetime import datetime, timedelta
+
+# --- TIMEZONE CONFIGURATION ---
+LOCAL_TZ = pytz.timezone('Pacific/Auckland')
 
 def fetch_wellness_data(days=30):
     """
@@ -19,8 +23,10 @@ def fetch_wellness_data(days=30):
         return []
 
     # API expects YYYY-MM-DD format
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    now_local = datetime.now(LOCAL_TZ)
+    # Using tomorrow's date for 'newest' to avoid missing current local data in morning
+    end_date = (now_local + timedelta(days=1)).strftime('%Y-%m-%d')
+    start_date = (now_local - timedelta(days=days)).strftime('%Y-%m-%d')
     
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={start_date}&newest={end_date}"
     
@@ -72,10 +78,16 @@ def fetch_activities_data(days=30):
         print("⚠️ Intervals.icu credentials missing for activities.")
         return []
 
+    now_local = datetime.now(LOCAL_TZ)
+    # Use tomorrow's date for 'newest' to ensure we capture all of 'today' in local time 
+    # regardless of how the API interprets the 'newest' parameter in UTC
+    newest = (now_local + timedelta(days=1)).strftime('%Y-%m-%d')
+    oldest = (now_local - timedelta(days=days)).strftime('%Y-%m-%d')
+    
     url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/activities"
     params = {
-        "oldest": (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d'), 
-        "newest": datetime.now().strftime('%Y-%m-%d')
+        "oldest": oldest, 
+        "newest": newest
     }
     
     try:

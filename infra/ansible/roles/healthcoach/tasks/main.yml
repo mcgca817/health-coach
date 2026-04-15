@@ -26,6 +26,12 @@
     dest: /opt/healthcoach/sql/
     delete: no
 
+- name: Copy scripts
+  synchronize:
+    src: "{{ playbook_dir }}/../../../scripts/"
+    dest: /opt/healthcoach/scripts/
+    delete: no
+
 - name: Copy test files
   synchronize:
     src: "{{ playbook_dir }}/../../../tests/"
