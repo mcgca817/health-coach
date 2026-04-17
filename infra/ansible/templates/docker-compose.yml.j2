@@ -72,8 +72,6 @@ services:
       POSTGRES_PASSWORD: {{ sparky_fitness_db_password }}
     volumes:
       - /opt/healthcoach/sparky_pgdata:/var/lib/postgresql/data
-    networks:
-      - default
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U {{ sparky_fitness_db_user }}"]
       interval: 10s
@@ -88,8 +86,6 @@ services:
       - GARMIN_SERVICE_PORT=8000
       - SPARKY_FITNESS_API_ENCRYPTION_KEY={{ sparky_fitness_api_encryption_key }}
       - GARMIN_SERVICE_IS_CN=false
-    networks:
-      - default
 
   sparkyfitness-server:
     image: codewithcj/sparkyfitness_server:latest
@@ -107,8 +103,6 @@ services:
     volumes:
       - /opt/healthcoach/sparky_backup:/app/SparkyFitnessServer/backup
       - /opt/healthcoach/sparky_uploads:/app/SparkyFitnessServer/uploads
-    networks:
-      - default
 
   sparkyfitness-frontend:
     image: codewithcj/sparkyfitness:latest
@@ -119,8 +113,6 @@ services:
     env_file: /opt/healthcoach/.env
     depends_on:
       - sparkyfitness-server
-    networks:
-      - default
 
   # --- INFRASTRUCTURE ---
   watchtower:
